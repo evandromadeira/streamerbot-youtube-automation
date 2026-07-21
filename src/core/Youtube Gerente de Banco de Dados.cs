@@ -1,0 +1,243 @@
+using System;
+using System.Collections.Generic;
+using System.Data.SQLite;
+using System.IO;
+using System.Linq;
+using Newtonsoft.Json;
+
+// Versão 260718.1550
+
+public class CPHInline
+{
+    private static readonly HashSet<string> TabelasPermitidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "YoutubeComandosAudio"
+        // Adicionar aqui só tabelas de configuração simples (sem regra de negócio condicional)
+    };
+
+    public bool GarantirSchema()
+    {
+        try
+        {
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            if (string.IsNullOrEmpty(ambiente.PastaRaiz))
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: Variável 'caminhoPastaStreamerBot' não encontrada!");
+                return false;
+            }
+
+            if (!Directory.Exists(ambiente.PastaStream))
+                Directory.CreateDirectory(ambiente.PastaStream);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                // ------------------------------------------------------------------
+                // Criação das tabelas (idempotente — só cria se não existir)
+                // ------------------------------------------------------------------
+                Executar(connection, @"CREATE TABLE IF NOT EXISTS YoutubeComandosAudio (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    grupoId INTEGER NOT NULL DEFAULT 0,
+                    comando TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    arquivo TEXT NOT NULL,
+                    custo INTEGER NOT NULL DEFAULT 0,
+                    ativo INTEGER NOT NULL DEFAULT 1);");
+
+                // ------------------------------------------------------------------
+                // Migrações incrementais — adicione uma linha aqui quando precisar
+                // de uma coluna nova. Seguro rodar múltiplas vezes.
+                // ------------------------------------------------------------------
+
+                // Exemplo de uso futuro:
+                // AdicionarColunaSeNaoExistir(connection, "YoutubeComandosAudio", "criadoPor", "TEXT");
+
+                CPH.LogInfo(">>> [GERENTE_DB] Schema verificado/atualizado com sucesso.");
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO CRÍTICO ao garantir schema: " + ex.Message);
+            return false;
+        }
+    }
+
+    public bool ObterOuCriarGrupoIdAudio()
+    {
+        try
+        {
+            CPH.TryGetArg("grupoAudioAliasesJson", out string aliasesJson);
+            var aliases = JsonConvert.DeserializeObject<List<string>>(aliasesJson ?? "[]");
+
+            if (aliases == null || aliases.Count == 0)
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: nenhum apelido informado para resolver grupoId.");
+                return false;
+            }
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                int grupoIdExistente = 0;
+                string placeholders = string.Join(",", aliases.Select((_, i) => $"@a{i}"));
+
+                using (var cmd = new SQLiteCommand($"SELECT grupoId FROM YoutubeComandosAudio WHERE comando IN ({placeholders}) COLLATE NOCASE LIMIT 1", connection))
+                {
+                    for (int i = 0; i < aliases.Count; i++)
+                        cmd.Parameters.AddWithValue($"@a{i}", aliases[i]);
+
+                    var resultado = cmd.ExecuteScalar();
+                    if (resultado != null && resultado != DBNull.Value)
+                        grupoIdExistente = Convert.ToInt32(resultado);
+                }
+
+                if (grupoIdExistente > 0)
+                {
+                    CPH.SetArgument("grupoIdResultado", grupoIdExistente);
+                    return true;
+                }
+
+                int novoGrupoId;
+                using (var cmd = new SQLiteCommand("SELECT COALESCE(MAX(grupoId), 0) + 1 FROM YoutubeComandosAudio", connection))
+                {
+                    novoGrupoId = Convert.ToInt32(cmd.ExecuteScalar());
+                }
+
+                CPH.SetArgument("grupoIdResultado", novoGrupoId);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao obter grupoId: " + ex.Message);
+            return false;
+        }
+    }
+
+    public bool SalvarRegistro()
+    {
+        try
+        {
+            CPH.TryGetArg("salvarTabela", out string tabela);
+            CPH.TryGetArg("salvarColunasJson", out string colunasJson);
+            CPH.TryGetArg("salvarChaveConflito", out string chaveConflito);
+            CPH.TryGetArg("salvarColunasSomenteInsercaoJson", out string somenteInsercaoJson);
+
+            if (string.IsNullOrEmpty(tabela) || string.IsNullOrEmpty(colunasJson) || string.IsNullOrEmpty(chaveConflito))
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros insuficientes para SalvarRegistro.");
+                return false;
+            }
+
+            if (!TabelasPermitidas.Contains(tabela))
+            {
+                CPH.LogError($">>> [GERENTE_DB] ERRO: tabela '{tabela}' não está na lista de tabelas permitidas para SalvarRegistro.");
+                return false;
+            }
+
+            var colunas = JsonConvert.DeserializeObject<Dictionary<string, object>>(colunasJson);
+            if (colunas == null || colunas.Count == 0 || !colunas.ContainsKey(chaveConflito))
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: colunas inválidas ou chave de conflito ausente entre as colunas.");
+                return false;
+            }
+
+            var somenteInsercao = string.IsNullOrEmpty(somenteInsercaoJson)
+                ? new List<string>()
+                : JsonConvert.DeserializeObject<List<string>>(somenteInsercaoJson);
+            
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                var nomesColunas = colunas.Keys.ToList();
+                string listaColunas = string.Join(", ", nomesColunas);
+                string listaValores = string.Join(", ", nomesColunas.Select(c => "@" + c));
+                string listaUpdate = string.Join(", ", nomesColunas
+                    .Where(c => c != chaveConflito && !somenteInsercao.Contains(c, StringComparer.OrdinalIgnoreCase))
+                    .Select(c => $"{c} = @{c}"));
+                
+                if (string.IsNullOrEmpty(listaUpdate))
+                    listaUpdate = $"{chaveConflito} = {chaveConflito}"; // no-op, evita SQL inválido se todas as colunas forem só-inserção
+                
+                string sql = $@"INSERT INTO {tabela} ({listaColunas})
+                                VALUES ({listaValores})
+                                ON CONFLICT({chaveConflito}) DO UPDATE SET {listaUpdate};";
+
+                using (var cmd = new SQLiteCommand(sql, connection))
+                {
+                    foreach (var kvp in colunas)
+                        cmd.Parameters.AddWithValue("@" + kvp.Key, kvp.Value ?? DBNull.Value);
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao executar SalvarRegistro: " + ex.Message);
+            return false;
+        }
+    }
+
+    private void Executar(SQLiteConnection connection, string sql)
+    {
+        using (var cmd = new SQLiteCommand(sql, connection))
+        {
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private SQLiteConnection AbrirConexao(Ambiente ambiente)
+    {
+        var connection = new SQLiteConnection($"Data Source={ambiente.CaminhoBanco};Version=3;");
+        connection.Open();
+        using (var pragmaCmd = new SQLiteCommand("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=3000;", connection))
+        {
+            pragmaCmd.ExecuteNonQuery();
+        }
+        return connection;
+    }
+
+    private void AdicionarColunaSeNaoExistir(SQLiteConnection connection, string tabela, string coluna, string tipoDefinicao)
+    {
+        bool colunaExiste = false;
+
+        using (var cmd = new SQLiteCommand($"PRAGMA table_info({tabela});", connection))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                if (string.Equals(reader["name"].ToString(), coluna, StringComparison.OrdinalIgnoreCase))
+                {
+                    colunaExiste = true;
+                    break;
+                }
+            }
+        }
+
+        if (colunaExiste) return;
+
+        using (var cmd = new SQLiteCommand($"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipoDefinicao};", connection))
+        {
+            cmd.ExecuteNonQuery();
+            CPH.LogInfo($">>> [GERENTE_DB] Coluna '{coluna}' adicionada em '{tabela}'.");
+        }
+    }
+
+    public class Ambiente
+    {
+        public string PastaRaiz { get; set; }
+
+        public string PastaStream => Path.Combine(PastaRaiz, "Data", "YoutubeStream");
+        public string CaminhoBanco => Path.Combine(PastaStream, "YoutubeStream.db");
+    }
+}

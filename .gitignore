@@ -1,0 +1,11 @@
+# Streamer.bot / Windows
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+Thumbs.db
+desktop.ini
+
+# Editor
+.vs/
+*.user
