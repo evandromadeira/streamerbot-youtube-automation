@@ -62,7 +62,8 @@ streamerbot-youtube-automation/
 │   │   ├── Youtube Adicionar Pontos.cs           # Operações atômicas de transação de pontos
 │   │   └── Youtube Consultar Pontos.cs           # Leitura de saldo, extrato e rankings
 │   ├── soundboard/
-│   │   └── Youtube Novo Áudio.cs                 # Módulo de cadastro dinâmico de mídias MP3 e gatilhos
+│   │   ├── Youtube Novo Áudio.cs                 # Módulo de cadastro dinâmico de mídias MP3 e gatilhos
+│   │   └── Youtube Reproduzir Áudio.cs           # Motor de reprodução e controle de saída de áudio
 │   └── startup/
 │       └── Youtube Tarefas ao Iniciar a Live.cs  # Bootstrap e disparo de rotinas de início de transmissão
 ├── .gitignore
