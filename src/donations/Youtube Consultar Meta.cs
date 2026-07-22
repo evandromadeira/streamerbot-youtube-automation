@@ -3,7 +3,7 @@ using System.IO;
 using System.Data.SQLite;
 using Newtonsoft.Json;
 
-// Versão 260718.1610
+// Atualização 260721.2040
 
 public class CPHInline
 {
@@ -72,11 +72,16 @@ public class CPHInline
 
         if (string.Equals(broadcastUserName, "Madeira", StringComparison.OrdinalIgnoreCase))
         {
-            mensagem += " | Live de 12 Horas | " + (progressoMensal < 60000 ? "Faltam " + (60000 - progressoMensal).ToString("N0") + "/60.000" : "100%");
+            mensagem += " | Live de 12 Horas " + (progressoMensal < 60000 ? "- Faltam " + (60000 - progressoMensal).ToString("N0") + "/60.000 |" : "- 100% |");
         }
         else if (string.Equals(broadcastUserName, "CamposRapha", StringComparison.OrdinalIgnoreCase))
         {
-            mensagem += " | Live de 12 Horas | " + (progressoMensal < 60000 ? "Faltam " + (60000 - progressoMensal).ToString("N0") + "/60.000" : "100%");
+            mensagem += " | Live de 12 Horas " + (progressoMensal < 60000 ? "- Faltam " + (60000 - progressoMensal).ToString("N0") + "/60.000 |" : "- 100% |");
+
+            if (progressoMensal >= 60000)
+            {
+                mensagem += " Presente Bodas de Algodão " + (progressoMensal < 90000 ? "- Faltam " + (90000 - progressoMensal).ToString("N0") + "/30.000 |" : "- 100% |");
+            }
         }
 
         return mensagem;
