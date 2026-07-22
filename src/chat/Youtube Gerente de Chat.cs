@@ -3,8 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260721.2105
-
+// Atualização 260722.1120
 public class CPHInline
 {
     public bool Execute()
@@ -13,16 +12,19 @@ public class CPHInline
         {
             Evento evento = new Evento(CPH);
             Ambiente ambiente = new Ambiente(CPH);
-            
-            var contexto = new Contexto { Evento = evento, Ambiente = ambiente };
 
-            // Serializa para JSON uma única vez (Performance Máxima)
+            var contexto = new Contexto
+            {
+                Evento = evento,
+                Ambiente = ambiente
+            };
+
+            // Serializa para JSON uma única vez
             string contextoJson = JsonConvert.SerializeObject(contexto);
             CPH.SetArgument("contextoMensagem", contextoJson);
 
             // Log de chat - Salvar mensagem na tabela ChatLog
             CPH.RunAction("Youtube Salvar Mensagem", true);
-            
             // Comandos de Chat
             if (!string.IsNullOrEmpty(evento.MessageText) && evento.MessageText.StartsWith("!"))
             {
@@ -53,16 +55,17 @@ public class CPHInline
             case "!novoaudio":
                 CPH.RunAction("Youtube Novo Áudio", false);
                 break;
+            case "!transferir":
+                CPH.RunAction("Youtube Transferir Pontos", false);
+                break;
             default:
                 bool audioTocado = CPH.ExecuteMethod("Youtube Reproduzir Áudio", "Execute");
-
                 if (audioTocado)
                     break;
-                
+
                 // Desafio de Palavra Surpresa
                 var pontosSurpresaPalavra = CPH.GetGlobalVar<string>("pontosSurpresaPalavra", true);
                 var actionComparaPalavra = CPH.GetActions().FirstOrDefault(a => a.Name.Equals("Youtube Compara Palavra", StringComparison.OrdinalIgnoreCase));
-                
                 if (!string.IsNullOrEmpty(pontosSurpresaPalavra) && actionComparaPalavra != null && actionComparaPalavra.Enabled)
                 {
                     CPH.RunAction("Youtube Compara Palavra", false);
@@ -72,6 +75,7 @@ public class CPHInline
                     CPH.SendYouTubeMessage($"@{userName} - Comando desconhecido: {comando}");
                     CPH.LogDebug($">>> [GERENTE DE CHAT] @{userName} - Comando desconhecido: {comando}");
                 }
+
                 break;
         }
     }
@@ -81,13 +85,12 @@ public class CPHInline
         public Evento Evento { get; set; }
         public Ambiente Ambiente { get; set; }
     }
-    
+
     public class Evento
     {
         public bool IsSub { get; set; }
         public bool IsSpo { get; set; }
         public bool IsMod { get; set; }
-
         public string UserId { get; set; }
         public string UserName { get; set; }
         public string MessageText { get; set; }
@@ -104,7 +107,6 @@ public class CPHInline
             CPH.TryGetArg("isSubscribed", out bool isSub);
             CPH.TryGetArg("userIsSponsor", out bool isSpo);
             CPH.TryGetArg("isModerator", out bool isMod);
-            
             CPH.TryGetArg("userId", out string userId);
             CPH.TryGetArg("user", out string userName);
             CPH.TryGetArg("message", out string messageText);
@@ -114,7 +116,6 @@ public class CPHInline
             IsSub = isSub;
             IsSpo = isSpo;
             IsMod = isMod;
-
             UserId = userId;
             UserName = userName;
             MessageText = messageText;
@@ -138,10 +139,8 @@ public class CPHInline
         public Ambiente(IInlineInvokeProxy CPH)
         {
             PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true) ?? "";
-
             PastaStream = Path.Combine(PastaRaiz, "Data", "YoutubeStream");
             PastaAudios = Path.Combine(PastaRaiz, "Data", "Audios");
-
             CaminhoBanco = Path.Combine(PastaStream, "YoutubeStream.db");
         }
     }

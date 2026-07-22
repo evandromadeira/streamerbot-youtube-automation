@@ -5,8 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260721.2205
-
+// Atualização 260722.1120
 public class CPHInline
 {
     private static readonly HashSet<string> TabelasPermitidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -14,7 +13,6 @@ public class CPHInline
         "YoutubeComandosAudio"
         // Adicionar aqui só tabelas de configuração simples (sem regra de negócio condicional)
     };
-
     public bool GarantirSchema()
     {
         try
@@ -45,15 +43,12 @@ public class CPHInline
                     cooldownSegundos INTEGER NOT NULL DEFAULT 0,
                     ultimoUso TEXT,
                     ativo INTEGER NOT NULL DEFAULT 1);");
-
                 // ------------------------------------------------------------------
                 // Migrações incrementais — adicione uma linha aqui quando precisar
                 // de uma coluna nova. Seguro rodar múltiplas vezes.
                 // ------------------------------------------------------------------
-
                 // Exemplo de uso futuro:
                 // AdicionarColunaSeNaoExistir(connection, "YoutubeComandosAudio", "criadoPor", "TEXT");
-
                 CPH.LogInfo(">>> [GERENTE_DB] Schema verificado/atualizado com sucesso.");
             }
 
@@ -71,9 +66,8 @@ public class CPHInline
         try
         {
             CPH.TryGetArg("grupoAudioAliasesJson", out string aliasesJson);
-            
-            var aliases = JsonConvert.DeserializeObject<List<string>>(aliasesJson ?? "[]");
 
+            var aliases = JsonConvert.DeserializeObject<List<string>>(aliasesJson ?? "[]");
             if (aliases == null || aliases.Count == 0)
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: nenhum apelido informado para resolver grupoId.");
@@ -87,14 +81,11 @@ public class CPHInline
             {
                 int grupoIdExistente = 0;
                 string placeholders = string.Join(",", aliases.Select((_, i) => $"@a{i}"));
-
                 using (var cmd = new SQLiteCommand($"SELECT grupoId FROM YoutubeComandosAudio WHERE comando IN ({placeholders}) COLLATE NOCASE LIMIT 1", connection))
                 {
                     for (int i = 0; i < aliases.Count; i++)
                         cmd.Parameters.AddWithValue($"@a{i}", aliases[i]);
-
                     var resultado = cmd.ExecuteScalar();
-                    
                     if (resultado != null && resultado != DBNull.Value)
                         grupoIdExistente = Convert.ToInt32(resultado);
                 }
@@ -106,7 +97,6 @@ public class CPHInline
                 }
 
                 int novoGrupoId;
-
                 using (var cmd = new SQLiteCommand("SELECT COALESCE(MAX(grupoId), 0) + 1 FROM YoutubeComandosAudio", connection))
                 {
                     novoGrupoId = Convert.ToInt32(cmd.ExecuteScalar());
@@ -120,7 +110,6 @@ public class CPHInline
         catch (Exception ex)
         {
             CPH.LogError(">>> [GERENTE_DB] ERRO ao obter grupoId: " + ex.Message);
-
             return false;
         }
     }
@@ -137,7 +126,6 @@ public class CPHInline
             if (string.IsNullOrEmpty(tabela) || string.IsNullOrEmpty(colunasJson) || string.IsNullOrEmpty(chaveConflito))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros insuficientes para SalvarRegistro.");
-
                 return false;
             }
 
@@ -154,34 +142,27 @@ public class CPHInline
                 return false;
             }
 
-            var somenteInsercao = string.IsNullOrEmpty(somenteInsercaoJson)
-                ? new List<string>()
-                : JsonConvert.DeserializeObject<List<string>>(somenteInsercaoJson);
-            
+            var somenteInsercao = string.IsNullOrEmpty(somenteInsercaoJson) ? new List<string>() : JsonConvert.DeserializeObject<List<string>>(somenteInsercaoJson);
+
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
 
             using (var connection = AbrirConexao(ambiente))
             {
                 var nomesColunas = colunas.Keys.ToList();
+
                 string listaColunas = string.Join(", ", nomesColunas);
                 string listaValores = string.Join(", ", nomesColunas.Select(c => "@" + c));
-                string listaUpdate = string.Join(", ", nomesColunas
-                    .Where(c => c != chaveConflito && !somenteInsercao.Contains(c, StringComparer.OrdinalIgnoreCase))
-                    .Select(c => $"{c} = @{c}"));
-                
+                string listaUpdate = string.Join(", ", nomesColunas.Where(c => c != chaveConflito && !somenteInsercao.Contains(c, StringComparer.OrdinalIgnoreCase)).Select(c => $"{c} = @{c}"));
                 if (string.IsNullOrEmpty(listaUpdate))
                     listaUpdate = $"{chaveConflito} = {chaveConflito}"; // no-op, evita SQL inválido se todas as colunas forem só-inserção
-                
                 string sql = $@"INSERT INTO {tabela} ({listaColunas})
                                 VALUES ({listaValores})
                                 ON CONFLICT({chaveConflito}) DO UPDATE SET {listaUpdate};";
-
                 using (var cmd = new SQLiteCommand(sql, connection))
                 {
                     foreach (var kvp in colunas)
                         cmd.Parameters.AddWithValue("@" + kvp.Key, kvp.Value ?? DBNull.Value);
-
                     cmd.ExecuteNonQuery();
                 }
             }
@@ -200,21 +181,19 @@ public class CPHInline
         try
         {
             CPH.TryGetArg("buscarAudioComando", out string comando);
-
             if (string.IsNullOrEmpty(comando))
             {
                 CPH.SetArgument("audioEncontrado", false);
                 return true;
             }
-            
+
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-            
+
             using (var connection = AbrirConexao(ambiente))
             using (var cmd = new SQLiteCommand("SELECT arquivo, custo, grupoId, cooldownSegundos, ultimoUso FROM YoutubeComandosAudio WHERE comando = @comando COLLATE NOCASE AND ativo = 1 LIMIT 1", connection))
             {
                 cmd.Parameters.AddWithValue("@comando", comando);
-                
                 using (var reader = cmd.ExecuteReader())
                 {
                     if (reader.Read())
@@ -232,7 +211,7 @@ public class CPHInline
                     }
                 }
             }
-            
+
             return true;
         }
         catch (Exception ex)
@@ -248,10 +227,10 @@ public class CPHInline
         try
         {
             CPH.TryGetArg("atualizarUltimoUsoGrupoId", out int grupoId);
-            
+
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-            
+
             using (var connection = AbrirConexao(ambiente))
             using (var cmd = new SQLiteCommand("UPDATE YoutubeComandosAudio SET ultimoUso = @agora WHERE grupoId = @grupoId;", connection))
             {
@@ -259,7 +238,7 @@ public class CPHInline
                 cmd.Parameters.AddWithValue("@grupoId", grupoId);
                 cmd.ExecuteNonQuery();
             }
-            
+
             return true;
         }
         catch (Exception ex)
@@ -268,7 +247,7 @@ public class CPHInline
             return false;
         }
     }
-    
+
     public bool DebitarPontos()
     {
         try
@@ -276,16 +255,15 @@ public class CPHInline
             CPH.TryGetArg("debitarUserId", out string userId);
             CPH.TryGetArg("debitarBroadcastUserId", out string broadcastUserId);
             CPH.TryGetArg("debitarCusto", out int custo);
-            
             if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(broadcastUserId))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: userId/broadcastUserId ausente para DebitarPontos.");
                 return false;
             }
-            
+
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-            
+
             using (var connection = AbrirConexao(ambiente))
             using (var cmd = new SQLiteCommand(@"UPDATE UserPoints
                 SET moeda = moeda - @custo
@@ -294,20 +272,107 @@ public class CPHInline
                 cmd.Parameters.AddWithValue("@custo", custo);
                 cmd.Parameters.AddWithValue("@userId", userId);
                 cmd.Parameters.AddWithValue("@broadcastUserId", broadcastUserId);
-                
                 int linhasAfetadas = cmd.ExecuteNonQuery();
-                
                 return linhasAfetadas > 0;
             }
         }
         catch (Exception ex)
         {
             CPH.LogError(">>> [GERENTE_DB] ERRO ao debitar pontos: " + ex.Message);
-            
             return false;
         }
     }
-    
+
+    public bool TransferirPontos()
+    {
+        try
+        {
+            CPH.TryGetArg("transferirRemetenteUserId", out string remetenteUserId);
+            CPH.TryGetArg("transferirDestinatarioNome", out string destinatarioNome);
+            CPH.TryGetArg("transferirQuantidade", out int quantidade);
+            if (string.IsNullOrEmpty(remetenteUserId) || string.IsNullOrEmpty(destinatarioNome) || quantidade <= 0)
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros inválidos para TransferirPontos.");
+                CPH.SetArgument("transferirResultado", "Erro");
+                return false;
+            }
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                using (var beginCmd = new SQLiteCommand("BEGIN IMMEDIATE;", connection))
+                {
+                    beginCmd.ExecuteNonQuery();
+                }
+
+                try
+                {
+                    string destinatarioId = BuscarUserIdPorNome(connection, destinatarioNome);
+                    if (string.IsNullOrEmpty(destinatarioId))
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("transferirResultado", "DestinatarioNaoEncontrado");
+                        return true;
+                    }
+
+                    if (destinatarioId == remetenteUserId)
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("transferirResultado", "AutoTransferencia");
+                        return true;
+                    }
+
+                    int saldoRemetente = ObterSaldoUsuario(connection, remetenteUserId);
+                    if (saldoRemetente < quantidade)
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("transferirResultado", "SaldoInsuficiente");
+                        CPH.SetArgument("transferirSaldoRemetente", saldoRemetente);
+                        return true;
+                    }
+
+                    using (var debitoCmd = new SQLiteCommand("UPDATE UserPoints SET moeda = moeda - @quantidade WHERE userId = @userId;", connection))
+                    {
+                        debitoCmd.Parameters.AddWithValue("@quantidade", quantidade);
+                        debitoCmd.Parameters.AddWithValue("@userId", remetenteUserId);
+                        debitoCmd.ExecuteNonQuery();
+                    }
+
+                    using (var creditoCmd = new SQLiteCommand("UPDATE UserPoints SET moeda = moeda + @quantidade WHERE userId = @userId;", connection))
+                    {
+                        creditoCmd.Parameters.AddWithValue("@quantidade", quantidade);
+                        creditoCmd.Parameters.AddWithValue("@userId", destinatarioId);
+                        creditoCmd.ExecuteNonQuery();
+                    }
+
+                    using (var commitCmd = new SQLiteCommand("COMMIT;", connection))
+                    {
+                        commitCmd.ExecuteNonQuery();
+                    }
+
+                    CPH.SetArgument("transferirResultado", "Sucesso");
+                    CPH.SetArgument("transferirDestinatarioId", destinatarioId);
+                    CPH.SetArgument("transferirDestinatarioNomeExibido", BuscarUserNamePorId(connection, destinatarioId) ?? destinatarioNome);
+                }
+                catch
+                {
+                    RollbackTransacao(connection);
+                    throw;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao transferir pontos: " + ex.Message);
+            CPH.SetArgument("transferirResultado", "Erro");
+            return false;
+        }
+    }
+
     private void Executar(SQLiteConnection connection, string sql)
     {
         using (var cmd = new SQLiteCommand(sql, connection))
@@ -324,13 +389,13 @@ public class CPHInline
         {
             pragmaCmd.ExecuteNonQuery();
         }
+
         return connection;
     }
 
     private void AdicionarColunaSeNaoExistir(SQLiteConnection connection, string tabela, string coluna, string tipoDefinicao)
     {
         bool colunaExiste = false;
-
         using (var cmd = new SQLiteCommand($"PRAGMA table_info({tabela});", connection))
         using (var reader = cmd.ExecuteReader())
         {
@@ -344,8 +409,8 @@ public class CPHInline
             }
         }
 
-        if (colunaExiste) return;
-
+        if (colunaExiste)
+            return;
         using (var cmd = new SQLiteCommand($"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipoDefinicao};", connection))
         {
             cmd.ExecuteNonQuery();
@@ -353,10 +418,47 @@ public class CPHInline
         }
     }
 
+    private void RollbackTransacao(SQLiteConnection connection)
+    {
+        using (var cmd = new SQLiteCommand("ROLLBACK;", connection))
+        {
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private int ObterSaldoUsuario(SQLiteConnection connection, string userId)
+    {
+        using (var cmd = new SQLiteCommand("SELECT moeda FROM UserPoints WHERE userId = @userId", connection))
+        {
+            cmd.Parameters.AddWithValue("@userId", userId);
+            var resultado = cmd.ExecuteScalar();
+            return resultado != null && resultado != DBNull.Value ? Convert.ToInt32(resultado) : 0;
+        }
+    }
+
+    private string BuscarUserIdPorNome(SQLiteConnection connection, string userName)
+    {
+        using (var cmd = new SQLiteCommand("SELECT userId FROM UserPoints WHERE userName = @userName COLLATE NOCASE LIMIT 1", connection))
+        {
+            cmd.Parameters.AddWithValue("@userName", userName);
+            var resultado = cmd.ExecuteScalar();
+            return resultado?.ToString();
+        }
+    }
+
+    private string BuscarUserNamePorId(SQLiteConnection connection, string userId)
+    {
+        using (var cmd = new SQLiteCommand("SELECT userName FROM UserPoints WHERE userId = @userId", connection))
+        {
+            cmd.Parameters.AddWithValue("@userId", userId);
+            var resultado = cmd.ExecuteScalar();
+            return resultado?.ToString();
+        }
+    }
+
     public class Ambiente
     {
         public string PastaRaiz { get; set; }
-
         public string PastaStream => Path.Combine(PastaRaiz, "Data", "YoutubeStream");
         public string CaminhoBanco => Path.Combine(PastaStream, "YoutubeStream.db");
     }
