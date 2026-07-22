@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260722.1120
+// Atualização 260722.1850
 public class CPHInline
 {
     private static readonly HashSet<string> TabelasPermitidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -13,6 +13,7 @@ public class CPHInline
         "YoutubeComandosAudio"
         // Adicionar aqui só tabelas de configuração simples (sem regra de negócio condicional)
     };
+
     public bool GarantirSchema()
     {
         try
@@ -154,8 +155,10 @@ public class CPHInline
                 string listaColunas = string.Join(", ", nomesColunas);
                 string listaValores = string.Join(", ", nomesColunas.Select(c => "@" + c));
                 string listaUpdate = string.Join(", ", nomesColunas.Where(c => c != chaveConflito && !somenteInsercao.Contains(c, StringComparer.OrdinalIgnoreCase)).Select(c => $"{c} = @{c}"));
+
                 if (string.IsNullOrEmpty(listaUpdate))
                     listaUpdate = $"{chaveConflito} = {chaveConflito}"; // no-op, evita SQL inválido se todas as colunas forem só-inserção
+
                 string sql = $@"INSERT INTO {tabela} ({listaColunas})
                                 VALUES ({listaValores})
                                 ON CONFLICT({chaveConflito}) DO UPDATE SET {listaUpdate};";
@@ -218,6 +221,62 @@ public class CPHInline
         {
             CPH.LogError(">>> [GERENTE_DB] ERRO ao buscar áudio por comando: " + ex.Message);
             CPH.SetArgument("audioEncontrado", false);
+            return false;
+        }
+    }
+
+    public bool ListarAudiosPorGrupo()
+    {
+        try
+        {
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            var lista = new List<AudioResumo>();
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                // Ordena por grupoId e, dentro do grupo, pelo comando mais curto (em caso de
+                // empate, o menor em ordem alfabética). Assim, o primeiro registro lido de
+                // cada grupoId já é o comando "resumido" que queremos exibir.
+                string sql = @"SELECT grupoId, comando, custo
+                                FROM YoutubeComandosAudio
+                                WHERE ativo = 1
+                                ORDER BY grupoId, LENGTH(comando) ASC, comando ASC;";
+
+                using (var cmd = new SQLiteCommand(sql, connection))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    int grupoAnterior = -1;
+
+                    while (reader.Read())
+                    {
+                        int grupoId = Convert.ToInt32(reader["grupoId"]);
+
+                        if (grupoId == grupoAnterior)
+                            continue; // já capturamos o menor comando deste grupoId
+
+                        grupoAnterior = grupoId;
+
+                        lista.Add(new AudioResumo
+                        {
+                            GrupoId = grupoId,
+                            Comando = reader["comando"].ToString(),
+                            Custo = Convert.ToInt32(reader["custo"])
+                        });
+                    }
+                }
+            }
+            
+            // Reordena o resultado por comando.
+            lista = lista.OrderBy(a => a.Comando, StringComparer.OrdinalIgnoreCase).ToList();
+            CPH.SetArgument("audiosListaJson", JsonConvert.SerializeObject(lista));
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao listar áudios: " + ex.Message);
             return false;
         }
     }
@@ -456,9 +515,17 @@ public class CPHInline
         }
     }
 
+    public class AudioResumo
+    {
+        public int GrupoId { get; set; }
+        public string Comando { get; set; }
+        public int Custo { get; set; }
+    }
+
     public class Ambiente
     {
         public string PastaRaiz { get; set; }
+        
         public string PastaStream => Path.Combine(PastaRaiz, "Data", "YoutubeStream");
         public string CaminhoBanco => Path.Combine(PastaStream, "YoutubeStream.db");
     }

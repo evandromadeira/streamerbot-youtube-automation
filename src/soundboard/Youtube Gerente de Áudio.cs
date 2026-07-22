@@ -1,10 +1,11 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Linq;
+using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260722.1545
+// Atualização 260722.1855
 public class CPHInline
 {
     public bool Execute()
@@ -81,7 +82,14 @@ public class CPHInline
                 return false;
             }
 
-            var aliases = aliasesRaw.Split(',').Select(a => a.Trim()).Where(a => !string.IsNullOrEmpty(a)).Select(a => a.StartsWith("!") ? a : "!" + a).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var aliases = aliasesRaw
+                .Split(',')
+                .Select(a => a.Trim())
+                .Where(a => !string.IsNullOrEmpty(a))
+                .Select(a => a.StartsWith("!") ? a : "!" + a)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            
             if (aliases.Count == 0)
             {
                 CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, informe pelo menos um comando (ex: hidratação,agua).");
@@ -102,7 +110,12 @@ public class CPHInline
             {
                 var colunas = new Dictionary<string, object>
                 {
-                    { "grupoId", grupoId }, { "comando", alias }, { "arquivo", arquivo }, { "custo", custo }, { "cooldownSegundos", cooldownSegundos }, { "ativo", 1 }
+                    { "grupoId", grupoId },
+                    { "comando", alias },
+                    { "arquivo", arquivo },
+                    { "custo", custo },
+                    { "cooldownSegundos", cooldownSegundos },
+                    { "ativo", 1 }
                 };
 
                 CPH.SetArgument("salvarTabela", "YoutubeComandosAudio");
@@ -130,6 +143,80 @@ public class CPHInline
             CPH.SendYouTubeMessage("❌ Falha técnica ao cadastrar áudio.");
             return false;
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Listagem de áudios cadastrados (!audios)
+    // ------------------------------------------------------------------
+    public bool ListarAudios()
+    {
+        try
+        {
+            bool consultaOk = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ListarAudiosPorGrupo");
+
+            if (!consultaOk)
+            {
+                CPH.SendYouTubeMessage("❌ Falha ao consultar a lista de áudios.");
+                return false;
+            }
+
+            CPH.TryGetArg("audiosListaJson", out string audiosJson);
+            var audios = string.IsNullOrEmpty(audiosJson) ? new List<AudioResumo>() : JsonConvert.DeserializeObject<List<AudioResumo>>(audiosJson);
+
+            if (audios == null || audios.Count == 0)
+            {
+                CPH.SendYouTubeMessage("ℹ Nenhum áudio cadastrado no momento.");
+                return true;
+            }
+
+            foreach (var mensagem in MontarMensagensDeAudios(audios))
+                CPH.SendYouTubeMessage(mensagem, false);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [AUDIO] ERRO CRÍTICO ao listar áudios: " + ex.Message);
+            CPH.SendYouTubeMessage("❌ Falha técnica ao listar áudios.");
+            return false;
+        }
+    }
+
+    // Monta uma ou mais mensagens de até 200 caracteres (limite do YouTube), sem nunca
+    // cortar um "!comando(custo)" no meio — cada item só entra inteiro em uma mensagem.
+    private List<string> MontarMensagensDeAudios(List<AudioResumo> audios)
+    {
+        const int limiteCaracteres = 200;
+        const string prefixo = "Áudios: ";
+        const string separador = " | ";
+
+        var mensagens = new List<string>();
+        var mensagemAtual = new StringBuilder(prefixo);
+        bool mensagemVazia = true;
+
+        foreach (var audio in audios)
+        {
+            string item = $"{audio.Comando} - ${audio.Custo:N0}";
+            string pedaco = mensagemVazia ? item : separador + item;
+
+            // Se não couber na mensagem atual, fecha essa mensagem e começa uma nova
+            // (o item inteiro vai para a próxima — nunca é dividido).
+            if (mensagemAtual.Length + pedaco.Length > limiteCaracteres && !mensagemVazia)
+            {
+                mensagens.Add(mensagemAtual.ToString());
+                mensagemAtual = new StringBuilder(prefixo + item);
+                mensagemVazia = false;
+                continue;
+            }
+
+            mensagemAtual.Append(pedaco);
+            mensagemVazia = false;
+        }
+
+        if (!mensagemVazia)
+            mensagens.Add(mensagemAtual.ToString());
+
+        return mensagens;
     }
 
     // ------------------------------------------------------------------
@@ -216,6 +303,13 @@ public class CPHInline
             CPH.LogError(">>> [AUDIO] ERRO CRÍTICO ao reproduzir áudio: " + ex.Message);
             return false;
         }
+    }
+
+    public class AudioResumo
+    {
+        public int GrupoId { get; set; }
+        public string Comando { get; set; }
+        public int Custo { get; set; }
     }
 
     public class Contexto
