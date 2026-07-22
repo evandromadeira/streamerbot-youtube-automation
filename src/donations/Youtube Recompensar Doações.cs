@@ -4,7 +4,7 @@ using System.Data.SQLite;
 using System.IO;
 using Newtonsoft.Json;
 
-// Versão 260715.2205
+// Atualização 260721.2150
 
 public class CPHInline
 {
@@ -22,26 +22,24 @@ public class CPHInline
 		}
 
 		string nomeMoeda = "";
-		string emoteDonate = "";
 
         if (string.Equals(evento.BroadcastUserName, "Madeira", StringComparison.OrdinalIgnoreCase))
 		{
 			nomeMoeda = "Gravetoins";
-			// emoteDonate = "MadeGoodGame";
 		}
 		else if (string.Equals(evento.BroadcastUserName, "CamposRapha", StringComparison.OrdinalIgnoreCase))
 		{
 			nomeMoeda = "Brotinhos";
-			// emoteDonate = "raphaRaphalove";
 		}
 
 		Random rnd = new Random();
+
 		int multiplicador = rnd.Next(50, 1001);
+        int pontosMeta = 0;
+		int moedaGanha = 0;
 
 		double valorEmBRL = 0;
         
-		int pontosMeta = 0;
-		int moedaGanha = 0;
 
 		// ------------------------------------------------------------------
 		// Super Chat / Super Sticker
@@ -49,8 +47,8 @@ public class CPHInline
         if (evento.TipoAcao == "Super Chat" || evento.TipoAcao == "Super Sticker")
 		{
 			double valorConversaoSuperChat = 0.7;
-
-			valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
+            
+            valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
 
 			pontosMeta = (int) Math.Round(valorConversaoSuperChat * valorEmBRL * 100);
 			moedaGanha = (int) Math.Round(multiplicador * valorEmBRL * 20);
@@ -68,12 +66,16 @@ public class CPHInline
             moedaGanha = (int) Math.Round(multiplicador * valorEmBRL * 20);
         }
         // ------------------------------------------------------------------
-		// Membership (novo membro) — AINDA NÃO IMPLEMENTADO
+		// New Sponsor (novo membro)
 		// ------------------------------------------------------------------
-        else if (evento.TipoAcao == "Membership" || evento.TipoAcao == "New Member")
+        else if (evento.TipoAcao == "New Sponsor")
         {
-			CPH.LogWarn(">>> [YT DOAÇÃO] Tipo 'Membership' ainda não implementado — faltam dados do evento real.");
-			return false;
+			double valorConversaoNewSponsor = 0.7;
+
+            valorEmBRL = evento.Valor;
+            
+            pontosMeta = (int) Math.Round(valorConversaoNewSponsor * valorEmBRL * 100);
+			moedaGanha = (int) Math.Round(multiplicador * valorEmBRL * 20);
 		}
 		// ------------------------------------------------------------------
 		// Membership Gift (presente de membership)
@@ -120,6 +122,7 @@ public class CPHInline
         
         // 3) Mensagem de agradecimento no chat
 		string mensagem = MontarMensagem(evento, pontosMeta, moedaGanha, multiplicador, valorEmBRL, nomeMoeda);
+        
         if (mensagem.Length > 200) mensagem = mensagem.Substring(0, 197) + "...";
 		CPH.SendYouTubeMessage(mensagem, true);
 
@@ -154,11 +157,12 @@ public class CPHInline
             "Tip" => "LivePix",
             "Super Sticker" => "Super Sticker",
             "Super Chat" => "Super Chat",
+            "New Sponsor" => "New Sponsor",
             "Membership Gift" => "Membership Gift",
             _ => "Donation"
         };
         
-        string detalheTier = evento.IsMembershipGift && !string.IsNullOrEmpty(evento.Tier)
+        string detalheTier = (evento.IsMembershipGift || evento.IsNewSponsor) && !string.IsNullOrEmpty(evento.Tier)
             ? $" ({evento.Tier}" + (evento.QuantidadeGifts > 1 ? $" x{evento.QuantidadeGifts})" : ")")
             : "";
         
@@ -224,7 +228,7 @@ public class CPHInline
 					cmd.Parameters.AddWithValue("@userName", evento.Usuario);
 					cmd.Parameters.AddWithValue("@tipoAcao", evento.TipoAcao);
 					cmd.Parameters.AddWithValue("@valorOriginal", evento.Valor);
-					cmd.Parameters.AddWithValue("@moedaOrigem", evento.CurrencyCode ?? "");
+					cmd.Parameters.AddWithValue("@moedaOrigem", evento.CurrencyCode ?? "BRL");
 					cmd.Parameters.AddWithValue("@valorBRL", valorEmBRL);
 					cmd.Parameters.AddWithValue("@pontosMeta", pontosMeta);
 					cmd.Parameters.AddWithValue("@moedaGanha", moedaGanha);
@@ -246,6 +250,7 @@ public class CPHInline
     {
         public bool IsTipLivePix { get; }
 		public bool IsMembershipGift { get; }
+        public bool IsNewSponsor { get; }
         
         public string Usuario { get; }
         public string UsuarioId { get; }
@@ -261,41 +266,64 @@ public class CPHInline
         
         public Evento(IInlineInvokeProxy CPH)
         {
-			// Campos nativos do YouTube (Super Chat, Super Sticker, Membership, Gift Membership...)
+			// Campos nativos do YouTube (Super Chat, Super Sticker)
             CPH.TryGetArg("user", out string usuario);
             CPH.TryGetArg("userId", out string usuarioId);
-            CPH.TryGetArg("triggerName", out string tipoAcao);
             CPH.TryGetArg("microAmount", out long microAmount);
             CPH.TryGetArg("currencyCode", out string currencyCode);
             CPH.TryGetArg("broadcastUserId", out string broadcastUserId);
             CPH.TryGetArg("broadcastUserName", out string broadcastUserName);
+            CPH.TryGetArg("triggerName", out string tipoAcao);
             
             // Campos exclusivos do Tip via LivePix (StreamElements)
             CPH.TryGetArg("tipUsername", out string tipUsername);
             CPH.TryGetArg("tipAmount", out double tipAmount);
             CPH.TryGetArg("tipCurrency", out string tipCurrency);
+            
+            // Campos exclusivos do New Sponsor (YouTube não informa valor em dinheiro, só o levelName)
+            CPH.TryGetArg("levelName", out string levelName);
 
-            // Campos exclusivos do Gift Membership (YouTube não informa valor em dinheiro, só o tier)
+            // Campos exclusivos do Membership Gift (YouTube não informa valor em dinheiro, só o tier)
             CPH.TryGetArg("tier", out string tier);
             CPH.TryGetArg("count", out int count);
+
+			string usuarioEmissao = CPH.GetGlobalVar<string>("usuarioEmissao", true);
 			
-			Tier = tier;
             TipoAcao = tipoAcao;
-			
+
             IsTipLivePix = tipoAcao == "Tip";
+            IsNewSponsor = tipoAcao == "New Sponsor";
             IsMembershipGift = tipoAcao == "Membership Gift";
             QuantidadeGifts = count > 0 ? count : 1;
-			
-            Valor = IsTipLivePix ? tipAmount : IsMembershipGift ? ObterValorTier(tier) * QuantidadeGifts : microAmount / 1000000.0;
+
             Usuario = IsTipLivePix ? tipUsername : usuario;
             UsuarioId = IsTipLivePix ? tipUsername : usuarioId;
-            CurrencyCode = IsTipLivePix ? tipCurrency : IsMembershipGift ? "BRL" : currencyCode;
             BroadcastUserId = IsTipLivePix ? "" : broadcastUserId;
+            BroadcastUserName = IsTipLivePix ? (string.IsNullOrEmpty(usuarioEmissao) ? "YOUTUBE" : usuarioEmissao) : (string.IsNullOrEmpty(broadcastUserName) ? "YOUTUBE" : broadcastUserName);
+            
+			Tier = IsNewSponsor ? levelName : tier;
 			
-			string usuarioEmissao = CPH.GetGlobalVar<string>("usuarioEmissao", true);
-            BroadcastUserName = IsTipLivePix
-                ? (string.IsNullOrEmpty(usuarioEmissao) ? "YOUTUBE" : usuarioEmissao)
-                : (string.IsNullOrEmpty(broadcastUserName) ? "YOUTUBE" : broadcastUserName);
+            // Define o valor com base na ação correta
+            if (IsTipLivePix)
+            {
+                Valor = tipAmount;
+                CurrencyCode = tipCurrency;
+            }
+            else if (IsMembershipGift)
+            {
+                Valor = ObterValorTier(Tier) * QuantidadeGifts;
+                CurrencyCode = "BRL";
+            }
+            else if (IsNewSponsor)
+            {
+                Valor = ObterValorTier(Tier);
+                CurrencyCode = "BRL";
+            }
+            else
+            {
+                Valor = microAmount / 1000000.0;
+                CurrencyCode = currencyCode;
+            }
         }
 
         // Tabela de preços das membros (tiers de membership do canal).
@@ -306,9 +334,13 @@ public class CPHInline
                 { "Tulipa Bronze", 7.99 },
                 { "Tulipa Prata", 11.99 },
                 { "Tulipa Ouro", 15.99 },
-                { "Tulipa Platina", 23.99 }
+                { "Tulipa Platina", 23.99 },
+                { "Ferro", 7.99 },
+                { "Diamante", 11.99 },
+                { "Netherite", 19.99 },
+                { "Suprema", 49.99 }
             };
-
+            
             return precosTier.TryGetValue(tier ?? "", out double preco) ? preco : 0;
         }
     }
