@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Versão 260718.1650
+// Atualização 260721.2105
 
 public class CPHInline
 {
@@ -54,6 +54,11 @@ public class CPHInline
                 CPH.RunAction("Youtube Novo Áudio", false);
                 break;
             default:
+                bool audioTocado = CPH.ExecuteMethod("Youtube Reproduzir Áudio", "Execute");
+
+                if (audioTocado)
+                    break;
+                
                 // Desafio de Palavra Surpresa
                 var pontosSurpresaPalavra = CPH.GetGlobalVar<string>("pontosSurpresaPalavra", true);
                 var actionComparaPalavra = CPH.GetActions().FirstOrDefault(a => a.Name.Equals("Youtube Compara Palavra", StringComparison.OrdinalIgnoreCase));
