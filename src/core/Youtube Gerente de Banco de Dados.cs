@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Versão 260718.1550
+// Atualização 260721.2205
 
 public class CPHInline
 {
@@ -42,6 +42,8 @@ public class CPHInline
                     comando TEXT NOT NULL UNIQUE COLLATE NOCASE,
                     arquivo TEXT NOT NULL,
                     custo INTEGER NOT NULL DEFAULT 0,
+                    cooldownSegundos INTEGER NOT NULL DEFAULT 0,
+                    ultimoUso TEXT,
                     ativo INTEGER NOT NULL DEFAULT 1);");
 
                 // ------------------------------------------------------------------
@@ -69,6 +71,7 @@ public class CPHInline
         try
         {
             CPH.TryGetArg("grupoAudioAliasesJson", out string aliasesJson);
+            
             var aliases = JsonConvert.DeserializeObject<List<string>>(aliasesJson ?? "[]");
 
             if (aliases == null || aliases.Count == 0)
@@ -91,6 +94,7 @@ public class CPHInline
                         cmd.Parameters.AddWithValue($"@a{i}", aliases[i]);
 
                     var resultado = cmd.ExecuteScalar();
+                    
                     if (resultado != null && resultado != DBNull.Value)
                         grupoIdExistente = Convert.ToInt32(resultado);
                 }
@@ -102,6 +106,7 @@ public class CPHInline
                 }
 
                 int novoGrupoId;
+
                 using (var cmd = new SQLiteCommand("SELECT COALESCE(MAX(grupoId), 0) + 1 FROM YoutubeComandosAudio", connection))
                 {
                     novoGrupoId = Convert.ToInt32(cmd.ExecuteScalar());
@@ -115,6 +120,7 @@ public class CPHInline
         catch (Exception ex)
         {
             CPH.LogError(">>> [GERENTE_DB] ERRO ao obter grupoId: " + ex.Message);
+
             return false;
         }
     }
@@ -131,6 +137,7 @@ public class CPHInline
             if (string.IsNullOrEmpty(tabela) || string.IsNullOrEmpty(colunasJson) || string.IsNullOrEmpty(chaveConflito))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros insuficientes para SalvarRegistro.");
+
                 return false;
             }
 
@@ -188,6 +195,119 @@ public class CPHInline
         }
     }
 
+    public bool BuscarAudioPorComando()
+    {
+        try
+        {
+            CPH.TryGetArg("buscarAudioComando", out string comando);
+
+            if (string.IsNullOrEmpty(comando))
+            {
+                CPH.SetArgument("audioEncontrado", false);
+                return true;
+            }
+            
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+            
+            using (var connection = AbrirConexao(ambiente))
+            using (var cmd = new SQLiteCommand("SELECT arquivo, custo, grupoId, cooldownSegundos, ultimoUso FROM YoutubeComandosAudio WHERE comando = @comando COLLATE NOCASE AND ativo = 1 LIMIT 1", connection))
+            {
+                cmd.Parameters.AddWithValue("@comando", comando);
+                
+                using (var reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        CPH.SetArgument("audioEncontrado", true);
+                        CPH.SetArgument("audioArquivo", reader["arquivo"].ToString());
+                        CPH.SetArgument("audioCusto", Convert.ToInt32(reader["custo"]));
+                        CPH.SetArgument("audioGrupoId", Convert.ToInt32(reader["grupoId"]));
+                        CPH.SetArgument("audioCooldownSegundos", Convert.ToInt32(reader["cooldownSegundos"]));
+                        CPH.SetArgument("audioUltimoUso", reader["ultimoUso"] == DBNull.Value ? "" : reader["ultimoUso"].ToString());
+                    }
+                    else
+                    {
+                        CPH.SetArgument("audioEncontrado", false);
+                    }
+                }
+            }
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao buscar áudio por comando: " + ex.Message);
+            CPH.SetArgument("audioEncontrado", false);
+            return false;
+        }
+    }
+
+    public bool AtualizarUltimoUsoAudio()
+    {
+        try
+        {
+            CPH.TryGetArg("atualizarUltimoUsoGrupoId", out int grupoId);
+            
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+            
+            using (var connection = AbrirConexao(ambiente))
+            using (var cmd = new SQLiteCommand("UPDATE YoutubeComandosAudio SET ultimoUso = @agora WHERE grupoId = @grupoId;", connection))
+            {
+                cmd.Parameters.AddWithValue("@agora", DateTime.UtcNow.ToString("o"));
+                cmd.Parameters.AddWithValue("@grupoId", grupoId);
+                cmd.ExecuteNonQuery();
+            }
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao atualizar último uso do áudio: " + ex.Message);
+            return false;
+        }
+    }
+    
+    public bool DebitarPontos()
+    {
+        try
+        {
+            CPH.TryGetArg("debitarUserId", out string userId);
+            CPH.TryGetArg("debitarBroadcastUserId", out string broadcastUserId);
+            CPH.TryGetArg("debitarCusto", out int custo);
+            
+            if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(broadcastUserId))
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: userId/broadcastUserId ausente para DebitarPontos.");
+                return false;
+            }
+            
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+            
+            using (var connection = AbrirConexao(ambiente))
+            using (var cmd = new SQLiteCommand(@"UPDATE UserPoints
+                SET moeda = moeda - @custo
+                WHERE userId = @userId AND broadcastUserId = @broadcastUserId AND moeda >= @custo;", connection))
+            {
+                cmd.Parameters.AddWithValue("@custo", custo);
+                cmd.Parameters.AddWithValue("@userId", userId);
+                cmd.Parameters.AddWithValue("@broadcastUserId", broadcastUserId);
+                
+                int linhasAfetadas = cmd.ExecuteNonQuery();
+                
+                return linhasAfetadas > 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao debitar pontos: " + ex.Message);
+            
+            return false;
+        }
+    }
+    
     private void Executar(SQLiteConnection connection, string sql)
     {
         using (var cmd = new SQLiteCommand(sql, connection))
