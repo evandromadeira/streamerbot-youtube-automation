@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Versão 260718.1540
+// Atualização 260721.2200
 
 public class CPHInline
 {
@@ -34,29 +34,45 @@ public class CPHInline
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
-            if (partes.Length != 4)
+            if (partes.Length != 5)
             {
-                CPH.SendYouTubeMessage("⚠ Uso correto: !novoaudio [apelidos separados por vírgula] [custo] [arquivo.mp3]");
+                CPH.SendYouTubeMessage("⚠ Uso correto: !novoaudio [apelidos separados por vírgula] [custo] [cooldown em segundos] [arquivo.mp3]");
                 return false;
             }
-
+            
             string aliasesRaw = partes[1];
             string custoStr = partes[2];
-            string arquivo = partes[3];
-
+            string cooldownStr = partes[3];
+            string arquivo = partes[4];
+            
             if (!int.TryParse(custoStr, out int custo) || custo < 0)
             {
                 CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, o custo precisa ser um número inteiro maior ou igual a zero.");
                 return false;
             }
 
+            if (!int.TryParse(cooldownStr, out int cooldownSegundos) || cooldownSegundos < 0)
+            {
+                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, o cooldown precisa ser um número inteiro de segundos maior ou igual a zero.");
+                return false;
+            }
+            
             if (!arquivo.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
             {
                 CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, o arquivo precisa terminar em .mp3");
+                
                 return false;
             }
-
+            
+            if (arquivo.Contains("/") || arquivo.Contains("\\") || arquivo.Contains(".."))
+            {
+                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, o nome do arquivo não pode conter caminhos (só o nome do .mp3).");
+                
+                return false;
+            }
+            
             string caminhoArquivo = Path.Combine(ambiente.PastaAudios, arquivo);
+
             if (!File.Exists(caminhoArquivo))
             {
                 CPH.SendYouTubeMessage($"❌ @{evento.UserName}, arquivo '{arquivo}' não encontrado na pasta de áudios.");
@@ -97,15 +113,16 @@ public class CPHInline
                     { "comando", alias },
                     { "arquivo", arquivo },
                     { "custo", custo },
+                    { "cooldownSegundos", cooldownSegundos },
                     { "ativo", 1 }
                 };
-
+                
                 CPH.SetArgument("salvarTabela", "YoutubeComandosAudio");
                 CPH.SetArgument("salvarColunasJson", JsonConvert.SerializeObject(colunas));
                 CPH.SetArgument("salvarChaveConflito", "comando");
-                CPH.SetArgument("salvarColunasSomenteInsercaoJson", JsonConvert.SerializeObject(new[] { "criadoPor", "criadoEm" }));
-
+                
                 salvo = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SalvarRegistro");
+                
                 if (!salvo) break;
             }
 
@@ -114,9 +131,9 @@ public class CPHInline
                 CPH.SendYouTubeMessage($"❌ @{evento.UserName}, falha ao salvar o áudio. Verifique os logs.");
                 return false;
             }
-
+            
             string listaAliases = string.Join(", ", aliases);
-            CPH.SendYouTubeMessage($"✅ Áudio #{grupoId} '{arquivo}' cadastrado! Comandos: {listaAliases} — custo: {custo:N0} pontos.");
+            CPH.SendYouTubeMessage($"✅ Áudio #{grupoId}: '{arquivo}' cadastrado! Comandos: {listaAliases}. Custo: {custo:N0} pontos. Cooldown: {cooldownSegundos}s.");
 
             return true;
         }
