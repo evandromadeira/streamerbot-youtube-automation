@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260722.1850
+// Atualização 260728.1815
 public class CPHInline
 {
     private static readonly HashSet<string> TabelasPermitidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -13,14 +13,13 @@ public class CPHInline
         "YoutubeComandosAudio"
         // Adicionar aqui só tabelas de configuração simples (sem regra de negócio condicional)
     };
-
+    
     public bool GarantirSchema()
     {
         try
         {
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-
             if (string.IsNullOrEmpty(ambiente.PastaRaiz))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: Variável 'caminhoPastaStreamerBot' não encontrada!");
@@ -29,7 +28,6 @@ public class CPHInline
 
             if (!Directory.Exists(ambiente.PastaStream))
                 Directory.CreateDirectory(ambiente.PastaStream);
-
             using (var connection = AbrirConexao(ambiente))
             {
                 // ------------------------------------------------------------------
@@ -44,12 +42,28 @@ public class CPHInline
                     cooldownSegundos INTEGER NOT NULL DEFAULT 0,
                     ultimoUso TEXT,
                     ativo INTEGER NOT NULL DEFAULT 1);");
+
+                Executar(connection, @"CREATE TABLE IF NOT EXISTS YoutubeDoacoes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    userId TEXT NOT NULL,
+                    userName TEXT NOT NULL,
+                    tipoAcao TEXT NOT NULL,
+                    valorOriginal REAL,
+                    moedaOrigem TEXT,
+                    valorBRL REAL,
+                    pontosMeta INTEGER NOT NULL,
+                    moedaGanha INTEGER NOT NULL,
+                    multiplicador INTEGER NOT NULL,
+                    broadcastUserId TEXT NOT NULL,
+                    broadcastUserName TEXT NOT NULL,
+                    timestamp TEXT NOT NULL);");
+
                 // ------------------------------------------------------------------
-                // Migrações incrementais — adicione uma linha aqui quando precisar
-                // de uma coluna nova. Seguro rodar múltiplas vezes.
+                // Migrações incrementais — adicione uma linha aqui quando precisar de uma coluna nova. Seguro rodar múltiplas vezes.
                 // ------------------------------------------------------------------
-                // Exemplo de uso futuro:
-                // AdicionarColunaSeNaoExistir(connection, "YoutubeComandosAudio", "criadoPor", "TEXT");
+                AdicionarColunaSeNaoExistir(connection, "YoutubeDoacoes", "tier", "TEXT");
+                AdicionarColunaSeNaoExistir(connection, "YoutubeDoacoes", "broadcastId", "TEXT");
+                AdicionarColunaSeNaoExistir(connection, "YoutubeDoacoes", "messageId", "TEXT");
                 CPH.LogInfo(">>> [GERENTE_DB] Schema verificado/atualizado com sucesso.");
             }
 
@@ -67,7 +81,6 @@ public class CPHInline
         try
         {
             CPH.TryGetArg("grupoAudioAliasesJson", out string aliasesJson);
-
             var aliases = JsonConvert.DeserializeObject<List<string>>(aliasesJson ?? "[]");
             if (aliases == null || aliases.Count == 0)
             {
@@ -77,7 +90,6 @@ public class CPHInline
 
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-
             using (var connection = AbrirConexao(ambiente))
             {
                 int grupoIdExistente = 0;
@@ -123,7 +135,6 @@ public class CPHInline
             CPH.TryGetArg("salvarColunasJson", out string colunasJson);
             CPH.TryGetArg("salvarChaveConflito", out string chaveConflito);
             CPH.TryGetArg("salvarColunasSomenteInsercaoJson", out string somenteInsercaoJson);
-
             if (string.IsNullOrEmpty(tabela) || string.IsNullOrEmpty(colunasJson) || string.IsNullOrEmpty(chaveConflito))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros insuficientes para SalvarRegistro.");
@@ -144,21 +155,16 @@ public class CPHInline
             }
 
             var somenteInsercao = string.IsNullOrEmpty(somenteInsercaoJson) ? new List<string>() : JsonConvert.DeserializeObject<List<string>>(somenteInsercaoJson);
-
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-
             using (var connection = AbrirConexao(ambiente))
             {
                 var nomesColunas = colunas.Keys.ToList();
-
                 string listaColunas = string.Join(", ", nomesColunas);
                 string listaValores = string.Join(", ", nomesColunas.Select(c => "@" + c));
                 string listaUpdate = string.Join(", ", nomesColunas.Where(c => c != chaveConflito && !somenteInsercao.Contains(c, StringComparer.OrdinalIgnoreCase)).Select(c => $"{c} = @{c}"));
-
                 if (string.IsNullOrEmpty(listaUpdate))
                     listaUpdate = $"{chaveConflito} = {chaveConflito}"; // no-op, evita SQL inválido se todas as colunas forem só-inserção
-
                 string sql = $@"INSERT INTO {tabela} ({listaColunas})
                                 VALUES ({listaValores})
                                 ON CONFLICT({chaveConflito}) DO UPDATE SET {listaUpdate};";
@@ -192,7 +198,6 @@ public class CPHInline
 
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-
             using (var connection = AbrirConexao(ambiente))
             using (var cmd = new SQLiteCommand("SELECT arquivo, custo, grupoId, cooldownSegundos, ultimoUso FROM YoutubeComandosAudio WHERE comando = @comando COLLATE NOCASE AND ativo = 1 LIMIT 1", connection))
             {
@@ -231,9 +236,7 @@ public class CPHInline
         {
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-
             var lista = new List<AudioResumo>();
-
             using (var connection = AbrirConexao(ambiente))
             {
                 // Ordena por grupoId e, dentro do grupo, pelo comando mais curto (em caso de
@@ -243,35 +246,24 @@ public class CPHInline
                                 FROM YoutubeComandosAudio
                                 WHERE ativo = 1
                                 ORDER BY grupoId, LENGTH(comando) ASC, comando ASC;";
-
                 using (var cmd = new SQLiteCommand(sql, connection))
                 using (var reader = cmd.ExecuteReader())
                 {
                     int grupoAnterior = -1;
-
                     while (reader.Read())
                     {
                         int grupoId = Convert.ToInt32(reader["grupoId"]);
-
                         if (grupoId == grupoAnterior)
                             continue; // já capturamos o menor comando deste grupoId
-
                         grupoAnterior = grupoId;
-
-                        lista.Add(new AudioResumo
-                        {
-                            GrupoId = grupoId,
-                            Comando = reader["comando"].ToString(),
-                            Custo = Convert.ToInt32(reader["custo"])
-                        });
+                        lista.Add(new AudioResumo { GrupoId = grupoId, Comando = reader["comando"].ToString(), Custo = Convert.ToInt32(reader["custo"]) });
                     }
                 }
             }
-            
+
             // Reordena o resultado por comando.
             lista = lista.OrderBy(a => a.Comando, StringComparer.OrdinalIgnoreCase).ToList();
             CPH.SetArgument("audiosListaJson", JsonConvert.SerializeObject(lista));
-
             return true;
         }
         catch (Exception ex)
@@ -286,10 +278,8 @@ public class CPHInline
         try
         {
             CPH.TryGetArg("atualizarUltimoUsoGrupoId", out int grupoId);
-
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-
             using (var connection = AbrirConexao(ambiente))
             using (var cmd = new SQLiteCommand("UPDATE YoutubeComandosAudio SET ultimoUso = @agora WHERE grupoId = @grupoId;", connection))
             {
@@ -322,7 +312,6 @@ public class CPHInline
 
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-
             using (var connection = AbrirConexao(ambiente))
             using (var cmd = new SQLiteCommand(@"UPDATE UserPoints
                 SET moeda = moeda - @custo
@@ -358,7 +347,6 @@ public class CPHInline
 
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-
             using (var connection = AbrirConexao(ambiente))
             {
                 using (var beginCmd = new SQLiteCommand("BEGIN IMMEDIATE;", connection))
@@ -525,7 +513,6 @@ public class CPHInline
     public class Ambiente
     {
         public string PastaRaiz { get; set; }
-        
         public string PastaStream => Path.Combine(PastaRaiz, "Data", "YoutubeStream");
         public string CaminhoBanco => Path.Combine(PastaStream, "YoutubeStream.db");
     }
