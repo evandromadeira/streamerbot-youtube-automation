@@ -4,7 +4,7 @@ using System.Data.SQLite;
 using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 260728.1830
+// Atualização 260820.1215
 public class CPHInline
 {
     public bool Execute()
@@ -20,23 +20,13 @@ public class CPHInline
             return false;
         }
 
-        string nomeMoeda = "";
-        if (string.Equals(evento.BroadcastUserName, "Madeira", StringComparison.OrdinalIgnoreCase))
-        {
-            nomeMoeda = "Gravetoins";
-        }
-        else if (string.Equals(evento.BroadcastUserName, "CamposRapha", StringComparison.OrdinalIgnoreCase))
-        {
-            nomeMoeda = "Brotinhos";
-        }
-
         Random rnd = new Random();
-		
+        
         int multiplicador = rnd.Next(50, 1001);
         int pontosMeta = 0;
         int moedaGanha = 0;
         double valorEmBRL = 0;
-		
+
         // ------------------------------------------------------------------
         // Super Chat / Super Sticker
         // ------------------------------------------------------------------
@@ -48,19 +38,18 @@ public class CPHInline
             moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
         }
         // ------------------------------------------------------------------
-        // Tip via LivePix (StreamElements)
+        // Jewels Gifted
         // ------------------------------------------------------------------
-        else if (evento.TipoAcao == "Tip")
+        else if (evento.TipoAcao == "Jewels Gifted")
         {
-            double valorConversaoLivePix = 0.95;
             valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
-            pontosMeta = (int)Math.Round(valorConversaoLivePix * valorEmBRL * 100);
+            pontosMeta = (int)Math.Round(valorEmBRL * 100);
             moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
         }
         // ------------------------------------------------------------------
         // New Sponsor (novo membro)
         // ------------------------------------------------------------------
-        else if (evento.TipoAcao == "New Sponsor")
+        else if (evento.TipoAcao == "New Sponsor" || evento.TipoAcao == "Member Milestone")
         {
             if (EventoDuplicado(ambiente.CaminhoBanco, evento))
             {
@@ -81,6 +70,16 @@ public class CPHInline
             double valorConversaoMembership = 0.7;
             valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
             pontosMeta = (int)Math.Round(valorConversaoMembership * valorEmBRL * 100);
+            moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
+        }
+        // ------------------------------------------------------------------
+        // Tip via LivePix (StreamElements)
+        // ------------------------------------------------------------------
+        else if (evento.TipoAcao == "Tip")
+        {
+            double valorConversaoLivePix = 0.95;
+            valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
+            pontosMeta = (int)Math.Round(valorConversaoLivePix * valorEmBRL * 100);
             moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
         }
         else
@@ -115,7 +114,7 @@ public class CPHInline
         InserirDoacao(ambiente.CaminhoBanco, evento, pontosMeta, moedaGanha, multiplicador, valorEmBRL);
 
         // Mensagem de agradecimento no chat
-        string mensagem = MontarMensagem(evento, pontosMeta, moedaGanha, multiplicador, valorEmBRL, nomeMoeda);
+        string mensagem = MontarMensagem(evento, pontosMeta, moedaGanha, multiplicador, valorEmBRL);
         if (mensagem.Length > 200)
             mensagem = mensagem.Substring(0, 197) + "...";
 
@@ -130,10 +129,11 @@ public class CPHInline
         var taxasConversaoParaBRL = new Dictionary<string, double>
         {
             { "BRL", 1.00 },
-            { "GBP", 6.80 },
-            { "USD", 5.15 },
-            { "EUR", 5.86 }
+            { "USD", 5.00 },
+            { "EUR", 5.80 },
+            { "GBP", 6.80 }
         };
+        
         double taxaCambio = taxasConversaoParaBRL.TryGetValue(moeda, out double taxaEncontrada) ? taxaEncontrada : 1.0;
         if (taxaCambio == 1.0 && moeda != "BRL")
         {
@@ -184,20 +184,30 @@ public class CPHInline
         }
     }
 
-    private string MontarMensagem(Evento evento, int pontosMeta, int moedaGanha, int multiplicador, double valorEmBRL, string nomeMoeda)
+    private string MontarMensagem(Evento evento, int pontosMeta, int moedaGanha, int multiplicador, double valorEmBRL)
     {
-        string tipo = evento.TipoAcao switch
+        var (nomeEvento, artigo) = evento.TipoAcao switch
         {
-            "Tip" => "LivePix",
-            "Super Sticker" => "Super Sticker",
-            "Super Chat" => "Super Chat",
-            "New Sponsor" => "New Sponsor",
-            "Membership Gift" => "Membership Gift",
-            _ => "Donation"
+            "Super Chat"        => ("Super Chat", "pelo"),
+            "Super Sticker"     => ("Super Sticker", "pelo"),
+            "Jewels Gifted"     => ("Joias", "pelas"),
+            "New Sponsor"       => ("Novo Membro", "pelo"),
+            "Member Milestone"  => ("Renovação de Assinatura", "pela"),
+            "Membership Gift"   => ("Presente de Assinatura", "pelo"),
+            "Tip"               => ("Contribuição", "pela"),
+            _                   => ("Contribuição", "pela")
         };
-        string detalheTier = (evento.IsMembershipGift || evento.IsNewSponsor) && !string.IsNullOrEmpty(evento.Tier) ? $" ({evento.Tier}" + (evento.QuantidadeGifts > 1 ? $" x{evento.QuantidadeGifts})" : ")") : "";
+        string detalheTier = (evento.IsMembershipGift || evento.IsNewSponsor) && !string.IsNullOrEmpty(evento.Tier)
+            ? $" ({evento.Tier}" + (evento.QuantidadeGifts > 1
+                ? $" x{evento.QuantidadeGifts})"
+                : ")")
+            : "";
         string simboloMoeda = ObterSimboloMoeda(evento.CurrencyCode);
-        return $"Obrigado pelo {tipo}{detalheTier} de {simboloMoeda} {evento.Valor:F2}, @{evento.Usuario}! " + $"Você contribuiu com {pontosMeta:N0} Pontos para as metas " + $"e ganhou {moedaGanha:N0} {nomeMoeda}! ({multiplicador:N0} Multiplicador x {valorEmBRL:F2} x 20)";
+        string agradecimento = evento.IsJewels
+            ? $"Obrigado {artigo} {evento.JewelsAmount:N0} {nomeEvento}"
+            : $"Obrigado {artigo} {nomeEvento}{detalheTier} de {simboloMoeda} {evento.Valor:F2}";
+        string moedasCalculo = $"({multiplicador:N0} Multiplicador x {valorEmBRL:0.00#} x 20)";
+        return $"{agradecimento}, @{evento.Usuario}! " + $"Você contribuiu com {pontosMeta:N0} Pontos para as metas " + $"e ganhou {moedaGanha:N0} Moedas! {moedasCalculo}";
     }
 
     private string ObterSimboloMoeda(string moeda)
@@ -258,9 +268,10 @@ public class CPHInline
 
     public class Evento
     {
-        public bool IsTipLivePix { get; }
-        public bool IsMembershipGift { get; }
+        public bool IsJewels { get; }
         public bool IsNewSponsor { get; }
+        public bool IsMembershipGift { get; }
+        public bool IsTipLivePix { get; }
 
         public string Usuario { get; }
         public string UsuarioId { get; }
@@ -273,12 +284,13 @@ public class CPHInline
         public string Tier { get; }
 
         public double Valor { get; }
+        public double JewelsAmount { get; }
 
         public int QuantidadeGifts { get; }
 
         public Evento(IInlineInvokeProxy CPH)
         {
-            // Campos nativos do YouTube (Super Chat, Super Sticker)
+            // Campos nativos do YouTube
             CPH.TryGetArg("user", out string usuario);
             CPH.TryGetArg("userId", out string usuarioId);
             CPH.TryGetArg("microAmount", out long microAmount);
@@ -289,10 +301,8 @@ public class CPHInline
             CPH.TryGetArg("triggerName", out string tipoAcao);
             CPH.TryGetArg("messageId", out string messageId);
 
-            // Campos exclusivos do Tip via LivePix (StreamElements)
-            CPH.TryGetArg("tipUsername", out string tipUsername);
-            CPH.TryGetArg("tipAmount", out double tipAmount);
-            CPH.TryGetArg("tipCurrency", out string tipCurrency);
+            // Campos exclusivos do Jewels Gifted
+            CPH.TryGetArg("gift.jewelsAmount", out double jewelsAmount);
 
             // Campos exclusivos do New Sponsor (YouTube não informa valor em dinheiro, só o levelName)
             CPH.TryGetArg("levelName", out string levelName);
@@ -301,12 +311,19 @@ public class CPHInline
             CPH.TryGetArg("tier", out string tier);
             CPH.TryGetArg("count", out int count);
 
+            // Campos exclusivos do Tip via LivePix (StreamElements)
+            CPH.TryGetArg("tipUsername", out string tipUsername);
+            CPH.TryGetArg("tipAmount", out double tipAmount);
+            CPH.TryGetArg("tipCurrency", out string tipCurrency);
+
             string usuarioEmissao = CPH.GetGlobalVar<string>("usuarioEmissao", true);
 
             TipoAcao = tipoAcao;
-            IsTipLivePix = tipoAcao == "Tip";
+            IsJewels = tipoAcao == "Jewels Gifted";
             IsNewSponsor = tipoAcao == "New Sponsor";
             IsMembershipGift = tipoAcao == "Membership Gift";
+            IsTipLivePix = tipoAcao == "Tip";
+            JewelsAmount = jewelsAmount;
             QuantidadeGifts = count > 0 ? count : 1;
             Usuario = IsTipLivePix ? tipUsername : usuario;
             UsuarioId = IsTipLivePix ? tipUsername : usuarioId;
@@ -317,20 +334,25 @@ public class CPHInline
             Tier = IsNewSponsor ? levelName : tier;
 
             // Define o valor com base na ação correta
-            if (IsTipLivePix)
+            if (IsJewels)
             {
-                Valor = tipAmount;
-                CurrencyCode = tipCurrency;
+                Valor = JewelsAmount / 200; // 2 Jóias = 0,01 Dólar
+                CurrencyCode = "USD";
+            }
+            else if (IsNewSponsor)
+            {
+                Valor = ObterValorTier(Tier);
+                CurrencyCode = "BRL";
             }
             else if (IsMembershipGift)
             {
                 Valor = ObterValorTier(Tier) * QuantidadeGifts;
                 CurrencyCode = "BRL";
             }
-            else if (IsNewSponsor)
+            else if (IsTipLivePix)
             {
-                Valor = ObterValorTier(Tier);
-                CurrencyCode = "BRL";
+                Valor = tipAmount;
+                CurrencyCode = tipCurrency;
             }
             else
             {
