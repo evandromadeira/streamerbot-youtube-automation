@@ -2,8 +2,7 @@ using System;
 using System.IO;
 using Newtonsoft.Json;
 
-// Versão 260721.2245
-
+// Atualização 260820.2045
 public class CPHInline
 {
     public bool Execute()
@@ -14,10 +13,10 @@ public class CPHInline
 
         if (string.IsNullOrEmpty(broadcastIdAtual))
         {
-            CPH.LogWarn(">>> [INICIO_LIVE] Não foi possível obter o broadcast monitorado; Ativando Pontos Surpresa sem checar duplicidade.");
-            
+            CPH.LogWarn(">>> [INICIO_LIVE] Não foi possível obter o broadcast monitorado; Ativando Moedas Surpresa sem checar duplicidade.");
+
             CPH.RunAction("Reset First Words", false); // Ativa a ação de resetar a primeira mensagem
-            CPH.RunAction("Youtube Pontos Surpresa", false);
+            CPH.RunAction("Youtube Moedas Surpresa", false);
         }
         else
         {
@@ -26,13 +25,13 @@ public class CPHInline
             if (ultimoBroadcastIdSurpresa != broadcastIdAtual)
             {
                 CPH.RunAction("Reset First Words", false); // Ativa a ação de resetar a primeira mensagem
-                CPH.RunAction("Youtube Pontos Surpresa", false); // Ativa a ação dos pontos surpresa
+                CPH.RunAction("Youtube Moedas Surpresa", false); // Ativa a ação das moedas surpresa
 
                 CPH.SetGlobalVar("ultimoBroadcastId", broadcastIdAtual, true);
             }
             else
             {
-                CPH.LogDebug(">>> [INICIO_LIVE] Pontos Surpresa já ativado para esse broadcast, ignorando repetição.");
+                CPH.LogDebug(">>> [INICIO_LIVE] Moedas Surpresa já ativado para esse broadcast, ignorando repetição.");
             }
         }
 
