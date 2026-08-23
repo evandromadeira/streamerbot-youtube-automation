@@ -1,25 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Data.SQLite;
-using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 260820.1215
+// Atualização 260823.1000
 public class CPHInline
 {
     public bool Execute()
     {
         Evento evento = new Evento(CPH);
-
-        Ambiente ambiente = new Ambiente();
-        ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-
-        if (string.IsNullOrEmpty(ambiente.PastaRaiz))
-        {
-            CPH.LogError(">>> [YT DOAÇÃO] ERRO: Variável 'caminhoPastaStreamerBot' não encontrada!");
-            return false;
-        }
-
         Random rnd = new Random();
         
         int multiplicador = rnd.Next(50, 1001);
@@ -51,7 +39,7 @@ public class CPHInline
         // ------------------------------------------------------------------
         else if (evento.TipoAcao == "New Sponsor" || evento.TipoAcao == "Member Milestone")
         {
-            if (EventoDuplicado(ambiente.CaminhoBanco, evento))
+            if (EventoDuplicado(evento))
             {
                 CPH.LogInfo($">>> [YT DOAÇÃO] Evento 'New Sponsor' duplicado ignorado: {evento.Usuario} / {evento.Tier}");
                 return true;
@@ -94,24 +82,22 @@ public class CPHInline
             return false;
         }
 
-        // Credita moeda do usuário na tabela UserPoints (coluna "moeda") via action existente
-        var payload = new
-        {
-            UserId = evento.UsuarioId,
-            UserName = evento.Usuario,
-            Timestamp = DateTime.Now,
-            Origem = evento.TipoAcao,
-            Pontos = moedaGanha,
-            BroadcastUserId = evento.BroadcastUserId,
-            BroadcastUserName = evento.BroadcastUserName
-        };
+        CPH.SetArgument("origem", "doacao");
+        CPH.SetArgument("targetUserId", evento.UsuarioId);
+        CPH.SetArgument("targetUserName", evento.Usuario);
+        CPH.SetArgument("coinsToAdd", moedaGanha);
+        CPH.SetArgument("broadcastUserId", evento.BroadcastUserId);
+        CPH.SetArgument("broadcastUserName", evento.BroadcastUserName);
 
-        string json = JsonConvert.SerializeObject(payload);
-        CPH.SetArgument("pontosPayload", json);
-        CPH.RunAction("Youtube Adicionar Pontos", true); // true = aguarda conclusão antes de seguir
+        bool executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
+        if (!executou)
+        {
+            CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
+            return false;
+        }
 
         // Insere a transação na tabela YoutubeDoacoes
-        InserirDoacao(ambiente.CaminhoBanco, evento, pontosMeta, moedaGanha, multiplicador, valorEmBRL);
+        InserirDoacao(evento, pontosMeta, moedaGanha, multiplicador, valorEmBRL);
 
         // Mensagem de agradecimento no chat
         string mensagem = MontarMensagem(evento, pontosMeta, moedaGanha, multiplicador, valorEmBRL);
@@ -143,38 +129,20 @@ public class CPHInline
         return valor * taxaCambio;
     }
 
-    private bool EventoDuplicado(string caminhoBanco, Evento evento)
+    private bool EventoDuplicado(Evento evento)
     {
         try
         {
-            using (var connection = new SQLiteConnection($"Data Source={caminhoBanco};Version=3;"))
-            {
-                connection.Open();
-                using (var pragmaCmd = new SQLiteCommand("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=3000;", connection))
-                {
-                    pragmaCmd.ExecuteNonQuery();
-                }
+            CPH.SetArgument("doacaoDupUserId", evento.UsuarioId);
+            CPH.SetArgument("doacaoDupBroadcastUserId", evento.BroadcastUserId);
+            CPH.SetArgument("doacaoDupTipoAcao", evento.TipoAcao);
+            CPH.SetArgument("doacaoDupTier", evento.Tier ?? "");
 
-                TimeSpan janelaDedup = TimeSpan.FromSeconds(15); // Janela de tempo do Evento
+            CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "VerificarDoacaoDuplicada");
 
-                string limiteTimestamp = DateTime.Now.Subtract(janelaDedup).ToString("yyyy-MM-dd HH:mm:ss");
-                string sql = @"SELECT COUNT(*) FROM YoutubeDoacoes
-								WHERE userId = @userId
-                                  AND broadcastUserId = @broadcastUserId
-                                  AND tipoAcao = @tipoAcao
-                                  AND tier = @tier
-                                  AND timestamp >= @limiteTimestamp;";
-                using (var cmd = new SQLiteCommand(sql, connection))
-                {
-                    cmd.Parameters.AddWithValue("@userId", evento.UsuarioId);
-                    cmd.Parameters.AddWithValue("@broadcastUserId", evento.BroadcastUserId);
-                    cmd.Parameters.AddWithValue("@tipoAcao", evento.TipoAcao);
-                    cmd.Parameters.AddWithValue("@tier", evento.Tier ?? "");
-                    cmd.Parameters.AddWithValue("@limiteTimestamp", limiteTimestamp);
+            CPH.TryGetArg("doacaoDuplicada", out bool duplicado);
 
-                    return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
-                }
-            }
+            return duplicado;
         }
         catch (Exception ex)
         {
@@ -222,49 +190,29 @@ public class CPHInline
         return simbolosMoeda.TryGetValue(moeda, out string simbolo) ? simbolo : moeda; // fallback: mostra o código (ex: "JPY") se a moeda não estiver na lista
     }
 
-    private void InserirDoacao(string caminhoBanco, Evento evento, int pontosMeta, int moedaGanha, int multiplicador, double valorEmBRL)
-	{
-		try
-		{
-			using (var connection = new SQLiteConnection($"Data Source={caminhoBanco};Version=3;"))
-			{
-				connection.Open();
+    private void InserirDoacao(Evento evento, int pontosMeta, int moedaGanha, int multiplicador, double valorEmBRL)
+    {
+        CPH.SetArgument("doacaoUserId", evento.UsuarioId);
+        CPH.SetArgument("doacaoUserName", evento.Usuario);
+        CPH.SetArgument("doacaoTipoAcao", evento.TipoAcao);
+        CPH.SetArgument("doacaoValorOriginal", evento.Valor);
+        CPH.SetArgument("doacaoMoedaOrigem", evento.CurrencyCode ?? "BRL");
+        CPH.SetArgument("doacaoValorBRL", valorEmBRL);
+        CPH.SetArgument("doacaoPontosMeta", pontosMeta);
+        CPH.SetArgument("doacaoMoedaGanha", moedaGanha);
+        CPH.SetArgument("doacaoMultiplicador", multiplicador);
+        CPH.SetArgument("doacaoBroadcastUserId", evento.BroadcastUserId);
+        CPH.SetArgument("doacaoBroadcastUserName", evento.BroadcastUserName);
+        CPH.SetArgument("doacaoTier", evento.Tier);
+        CPH.SetArgument("doacaoBroadcastId", evento.BroadcastId);
+        CPH.SetArgument("doacaoMessageId", evento.MessageId);
 
-				using (var pragmaCmd = new SQLiteCommand("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=3000;", connection))
-				{
-					pragmaCmd.ExecuteNonQuery();
-				}
-
-				string insertSql = @"INSERT INTO YoutubeDoacoes
-									(userId, userName, tipoAcao, valorOriginal, moedaOrigem, valorBRL, pontosMeta, moedaGanha, multiplicador, broadcastUserId, broadcastUserName, timestamp, tier, broadcastId, messageId)
-									VALUES (@userId, @userName, @tipoAcao, @valorOriginal, @moedaOrigem, @valorBRL, @pontosMeta, @moedaGanha, @multiplicador, @broadcastUserId, @broadcastUserName, @timestamp, @tier, @broadcastId, @messageId);";
-
-				using (var cmd = new SQLiteCommand(insertSql, connection))
-				{
-					cmd.Parameters.AddWithValue("@userId", evento.UsuarioId);
-					cmd.Parameters.AddWithValue("@userName", evento.Usuario);
-					cmd.Parameters.AddWithValue("@tipoAcao", evento.TipoAcao);
-					cmd.Parameters.AddWithValue("@valorOriginal", evento.Valor);
-					cmd.Parameters.AddWithValue("@moedaOrigem", evento.CurrencyCode ?? "BRL");
-					cmd.Parameters.AddWithValue("@valorBRL", valorEmBRL);
-					cmd.Parameters.AddWithValue("@pontosMeta", pontosMeta);
-					cmd.Parameters.AddWithValue("@moedaGanha", moedaGanha);
-					cmd.Parameters.AddWithValue("@multiplicador", multiplicador);
-					cmd.Parameters.AddWithValue("@broadcastUserId", evento.BroadcastUserId);
-					cmd.Parameters.AddWithValue("@broadcastUserName", evento.BroadcastUserName);
-					cmd.Parameters.AddWithValue("@timestamp", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-					cmd.Parameters.AddWithValue("@tier", evento.Tier ?? (object)DBNull.Value);
-					cmd.Parameters.AddWithValue("@broadcastId", evento.BroadcastId ?? (object)DBNull.Value);
-					cmd.Parameters.AddWithValue("@messageId", evento.MessageId ?? (object)DBNull.Value);
-					cmd.ExecuteNonQuery();
-				}
-			}
-		}
-		catch (Exception ex)
-		{
-			CPH.LogError($">>> [YT DOAÇÃO] Erro ao inserir doação: {ex.Message}");
-		}
-	}
+        bool salvou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SalvarDoacao");
+        if (!salvou)
+        {
+            CPH.LogError($">>> [YT DOAÇÃO] Erro ao inserir doação (usuário: {evento.Usuario}).");
+        }
+    }
 
     public class Evento
     {
@@ -326,7 +274,7 @@ public class CPHInline
             JewelsAmount = jewelsAmount;
             QuantidadeGifts = count > 0 ? count : 1;
             Usuario = IsTipLivePix ? tipUsername : usuario;
-            UsuarioId = IsTipLivePix ? tipUsername : usuarioId;
+            UsuarioId = IsTipLivePix ? "" : usuarioId;
             BroadcastId = broadcastId;
             BroadcastUserId = IsTipLivePix ? "" : broadcastUserId;
             BroadcastUserName = IsTipLivePix ? (string.IsNullOrEmpty(usuarioEmissao) ? "YOUTUBE" : usuarioEmissao) : (string.IsNullOrEmpty(broadcastUserName) ? "YOUTUBE" : broadcastUserName);
@@ -378,12 +326,5 @@ public class CPHInline
 
             return precosTier.TryGetValue(tier ?? "", out double preco) ? preco : 0;
         }
-    }
-
-    public class Ambiente
-    {
-        public string PastaRaiz { get; set; }
-        public string PastaStream => Path.Combine(PastaRaiz, "Data", "YoutubeStream");
-        public string CaminhoBanco => Path.Combine(PastaStream, "YoutubeStream.db");
     }
 }
