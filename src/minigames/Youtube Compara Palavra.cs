@@ -1,11 +1,10 @@
 using System;
 using Newtonsoft.Json;
 
-// Versão 260715.1950
-
+// Atualização 260820.2015
 public class CPHInline
 {
-    private static readonly object pontosSurpresaLock = new object();
+    private static readonly object moedasSurpresaLock = new object();
 
     public bool Execute()
     {
@@ -13,7 +12,7 @@ public class CPHInline
         {
             var evento = new Evento(CPH);
 
-            var palavraSurpresa = CPH.GetGlobalVar<string>("pontosSurpresaPalavra", true);
+            var palavraSurpresa = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true);
 
             if (string.IsNullOrEmpty(palavraSurpresa)) return true;
 
@@ -21,11 +20,11 @@ public class CPHInline
             if (string.Equals(palavraSurpresa, evento.MessageText?.Trim(), StringComparison.OrdinalIgnoreCase))
             {
                 // Travamos para garantir que só uma execução processe por vez.
-                lock (pontosSurpresaLock)
+                lock (moedasSurpresaLock)
                 {
                     // Evita que o mesmo espectador ganhe mais de uma vez na mesma rodada
-                    var x = CPH.GetGlobalVar<int>("pontosSurpresaGanhadoresCount", true);
-                    string listaGanhadores = CPH.GetGlobalVar<string>("pontosSurpresaListaGanhadores", true) ?? "";
+                    var x = CPH.GetGlobalVar<int>("moedasSurpresaGanhadoresCount", true);
+                    string listaGanhadores = CPH.GetGlobalVar<string>("moedasSurpresaListaGanhadores", true) ?? "";
                     string buscaId = $"|{evento.UserId}|";
 
                     if (listaGanhadores.Contains(buscaId))
@@ -35,33 +34,31 @@ public class CPHInline
 
                     // Adiciona o ID do usuário à lista de ganhadores temporária
                     listaGanhadores += buscaId;
-                    CPH.SetGlobalVar("pontosSurpresaListaGanhadores", listaGanhadores, true);
+                    CPH.SetGlobalVar("moedasSurpresaListaGanhadores", listaGanhadores, true);
 
                     // Calcula o prêmio base com base na posição do ganhador (x)
-                    int pontosBase = (int)(1000 / Math.Pow(2, x));
+                    int moedasBase = (int)(1000 / Math.Pow(2, x));
 
                     // Incrementa multiplicador com base nas informações do usuário
                     int multiplicador = 1;
                     if (evento.IsSub) multiplicador++;
                     if (evento.IsSpo) multiplicador++;
 
-                    int pontosFinais = pontosBase * multiplicador;
+                    int moedasFinais = moedasBase * multiplicador;
 
-                    // Envia o payload de pontos para a Action de adicionar pontos
-                    var payload = new
+                    CPH.SetArgument("origem", "moedas_surpresa");
+                    CPH.SetArgument("targetUserId", evento.UserId ?? evento.UserName);
+                    CPH.SetArgument("targetUserName", evento.UserName);
+                    CPH.SetArgument("coinsToAdd", moedasFinais);
+                    CPH.SetArgument("broadcastUserId", evento.BroadcastUserId);
+                    CPH.SetArgument("broadcastUserName", evento.BroadcastUserName);
+
+                    bool executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
+                    if (!executou)
                     {
-                        UserId = evento.UserId ?? evento.UserName,
-                        UserName = evento.UserName,
-                        Timestamp = DateTime.Now,
-                        Origem = "Pontos Surpresa",
-                        Pontos = pontosFinais,
-                        BroadcastUserId = evento.BroadcastUserId ?? "",
-                        BroadcastUserName = evento.BroadcastUserName
-                    };
-
-                    string json = JsonConvert.SerializeObject(payload);
-                    CPH.SetArgument("pontosPayload", json);
-                    CPH.RunAction("Youtube Adicionar Pontos", true);
+                        CPH.LogError($">>> [YT COMPARA PALAVRA] ERRO CRÍTICO: Falha ao adicionar moedas para @{evento.UserName}.");
+                        return false;
+                    }
 
                     // Envia a mensagem comemorativa no chat destacando a posição e o bônus
                     string posicaoTexto = x switch
@@ -78,20 +75,20 @@ public class CPHInline
                         _ => ""
                     };
 
-                    string mensagemSucesso = $"{posicaoTexto}: @{evento.UserName} digitou rápido e ganhou {pontosFinais:N0} pontos!{detalheCargo}";
+                    string mensagemSucesso = $"{posicaoTexto}: @{evento.UserName} digitou rápido e ganhou {moedasFinais:N0} Moedas!{detalheCargo}";
                     CPH.SendYouTubeMessage(mensagemSucesso, false);
 
                     // Incrementa o contador de ganhadores no banco de memória do bot
-                    CPH.SetGlobalVar("pontosSurpresaGanhadoresCount", ++x, true);
+                    CPH.SetGlobalVar("moedasSurpresaGanhadoresCount", ++x, true);
 
                     // Se já bateu os 3 ganhadores, desativa imediatamente
                     if (x >= 3)
                     {
                         CPH.DisableAction("Youtube Compara Palavra");
 
-                        CPH.UnsetGlobalVar("pontosSurpresaPalavra", true);
-                        CPH.UnsetGlobalVar("pontosSurpresaGanhadoresCount", true);
-                        CPH.UnsetGlobalVar("pontosSurpresaListaGanhadores", true);
+                        CPH.UnsetGlobalVar("moedasSurpresaPalavra", true);
+                        CPH.UnsetGlobalVar("moedasSurpresaGanhadoresCount", true);
+                        CPH.UnsetGlobalVar("moedasSurpresaListaGanhadores", true);
                     }
                 }
             }
