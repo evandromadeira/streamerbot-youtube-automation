@@ -5,21 +5,23 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260728.1815
+// Atualização 260823.1000
 public class CPHInline
 {
     private static readonly HashSet<string> TabelasPermitidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        "YoutubeComandosAudio"
-        // Adicionar aqui só tabelas de configuração simples (sem regra de negócio condicional)
+        "YoutubeComandosAudio",
+        "YoutubeUsuariosMoeda",
+        "YoutubeChatLog"
     };
-    
+
     public bool GarantirSchema()
     {
         try
         {
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
             if (string.IsNullOrEmpty(ambiente.PastaRaiz))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: Variável 'caminhoPastaStreamerBot' não encontrada!");
@@ -28,6 +30,7 @@ public class CPHInline
 
             if (!Directory.Exists(ambiente.PastaStream))
                 Directory.CreateDirectory(ambiente.PastaStream);
+
             using (var connection = AbrirConexao(ambiente))
             {
                 // ------------------------------------------------------------------
@@ -58,12 +61,35 @@ public class CPHInline
                     broadcastUserName TEXT NOT NULL,
                     timestamp TEXT NOT NULL);");
 
+                Executar(connection, @"CREATE TABLE IF NOT EXISTS YoutubeUsuariosMoeda (
+                    userId TEXT PRIMARY KEY NOT NULL,
+                    userName TEXT NOT NULL,
+                    coinBalance INTEGER NOT NULL DEFAULT 0,
+                    lastCoinAt TEXT,
+                    broadcastUserId TEXT,
+                    broadcastUserName TEXT);");
+
+                Executar(connection, @"CREATE TABLE IF NOT EXISTS YoutubeChatLog (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    userId TEXT,
+                    userName TEXT,
+                    messageId TEXT,
+                    message TEXT,
+                    broadcastUserId TEXT,
+                    broadcastUserName TEXT,
+                    isSubscribed INTEGER,
+                    isSponsor INTEGER,
+                    isModerator INTEGER,
+                    userPreviousActive TEXT,
+                    publishedAt TEXT);");
+
                 // ------------------------------------------------------------------
-                // Migrações incrementais — adicione uma linha aqui quando precisar de uma coluna nova. Seguro rodar múltiplas vezes.
+                // Migrações incrementais
                 // ------------------------------------------------------------------
                 AdicionarColunaSeNaoExistir(connection, "YoutubeDoacoes", "tier", "TEXT");
                 AdicionarColunaSeNaoExistir(connection, "YoutubeDoacoes", "broadcastId", "TEXT");
                 AdicionarColunaSeNaoExistir(connection, "YoutubeDoacoes", "messageId", "TEXT");
+
                 CPH.LogInfo(">>> [GERENTE_DB] Schema verificado/atualizado com sucesso.");
             }
 
@@ -90,6 +116,7 @@ public class CPHInline
 
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
             using (var connection = AbrirConexao(ambiente))
             {
                 int grupoIdExistente = 0;
@@ -135,6 +162,7 @@ public class CPHInline
             CPH.TryGetArg("salvarColunasJson", out string colunasJson);
             CPH.TryGetArg("salvarChaveConflito", out string chaveConflito);
             CPH.TryGetArg("salvarColunasSomenteInsercaoJson", out string somenteInsercaoJson);
+
             if (string.IsNullOrEmpty(tabela) || string.IsNullOrEmpty(colunasJson) || string.IsNullOrEmpty(chaveConflito))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros insuficientes para SalvarRegistro.");
@@ -155,8 +183,10 @@ public class CPHInline
             }
 
             var somenteInsercao = string.IsNullOrEmpty(somenteInsercaoJson) ? new List<string>() : JsonConvert.DeserializeObject<List<string>>(somenteInsercaoJson);
+
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
             using (var connection = AbrirConexao(ambiente))
             {
                 var nomesColunas = colunas.Keys.ToList();
@@ -164,7 +194,8 @@ public class CPHInline
                 string listaValores = string.Join(", ", nomesColunas.Select(c => "@" + c));
                 string listaUpdate = string.Join(", ", nomesColunas.Where(c => c != chaveConflito && !somenteInsercao.Contains(c, StringComparer.OrdinalIgnoreCase)).Select(c => $"{c} = @{c}"));
                 if (string.IsNullOrEmpty(listaUpdate))
-                    listaUpdate = $"{chaveConflito} = {chaveConflito}"; // no-op, evita SQL inválido se todas as colunas forem só-inserção
+                    listaUpdate = $"{chaveConflito} = {chaveConflito}";
+
                 string sql = $@"INSERT INTO {tabela} ({listaColunas})
                                 VALUES ({listaValores})
                                 ON CONFLICT({chaveConflito}) DO UPDATE SET {listaUpdate};";
@@ -236,14 +267,12 @@ public class CPHInline
         {
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
             var lista = new List<AudioResumo>();
             using (var connection = AbrirConexao(ambiente))
             {
-                // Ordena por grupoId e, dentro do grupo, pelo comando mais curto (em caso de
-                // empate, o menor em ordem alfabética). Assim, o primeiro registro lido de
-                // cada grupoId já é o comando "resumido" que queremos exibir.
                 string sql = @"SELECT grupoId, comando, custo
-                                FROM YoutubeComandosAudio
+                                 FROM YoutubeComandosAudio
                                 WHERE ativo = 1
                                 ORDER BY grupoId, LENGTH(comando) ASC, comando ASC;";
                 using (var cmd = new SQLiteCommand(sql, connection))
@@ -254,14 +283,13 @@ public class CPHInline
                     {
                         int grupoId = Convert.ToInt32(reader["grupoId"]);
                         if (grupoId == grupoAnterior)
-                            continue; // já capturamos o menor comando deste grupoId
+                            continue;
                         grupoAnterior = grupoId;
                         lista.Add(new AudioResumo { GrupoId = grupoId, Comando = reader["comando"].ToString(), Custo = Convert.ToInt32(reader["custo"]) });
                     }
                 }
             }
 
-            // Reordena o resultado por comando.
             lista = lista.OrderBy(a => a.Comando, StringComparer.OrdinalIgnoreCase).ToList();
             CPH.SetArgument("audiosListaJson", JsonConvert.SerializeObject(lista));
             return true;
@@ -283,7 +311,7 @@ public class CPHInline
             using (var connection = AbrirConexao(ambiente))
             using (var cmd = new SQLiteCommand("UPDATE YoutubeComandosAudio SET ultimoUso = @agora WHERE grupoId = @grupoId;", connection))
             {
-                cmd.Parameters.AddWithValue("@agora", DateTime.UtcNow.ToString("o"));
+                cmd.Parameters.AddWithValue("@agora", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
                 cmd.Parameters.AddWithValue("@grupoId", grupoId);
                 cmd.ExecuteNonQuery();
             }
@@ -297,56 +325,232 @@ public class CPHInline
         }
     }
 
-    public bool DebitarPontos()
+    public bool SaldoMoedasUsuario()
     {
         try
         {
-            CPH.TryGetArg("debitarUserId", out string userId);
-            CPH.TryGetArg("debitarBroadcastUserId", out string broadcastUserId);
-            CPH.TryGetArg("debitarCusto", out int custo);
-            if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(broadcastUserId))
+            CPH.TryGetArg("consultarChave", out string chave);
+            CPH.TryGetArg("consultarPorId", out bool consultarPorId);
+
+            if (string.IsNullOrEmpty(chave))
             {
-                CPH.LogError(">>> [GERENTE_DB] ERRO: userId/broadcastUserId ausente para DebitarPontos.");
+                CPH.LogError(">>> [GERENTE_DB] ERRO: chave ausente para SaldoMoedasUsuario.");
+                CPH.SetArgument("consultarEncontrado", false);
                 return false;
             }
 
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
-            using (var connection = AbrirConexao(ambiente))
-            using (var cmd = new SQLiteCommand(@"UPDATE UserPoints
-                SET moeda = moeda - @custo
-                WHERE userId = @userId AND broadcastUserId = @broadcastUserId AND moeda >= @custo;", connection))
+
+            if (!File.Exists(ambiente.CaminhoBanco))
             {
-                cmd.Parameters.AddWithValue("@custo", custo);
-                cmd.Parameters.AddWithValue("@userId", userId);
-                cmd.Parameters.AddWithValue("@broadcastUserId", broadcastUserId);
-                int linhasAfetadas = cmd.ExecuteNonQuery();
-                return linhasAfetadas > 0;
+                CPH.LogError(">>> [GERENTE_DB] ERRO: banco de dados não encontrado para SaldoMoedasUsuario.");
+                CPH.SetArgument("consultarEncontrado", false);
+                return false;
             }
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                string selectSql = consultarPorId
+                    ? "SELECT userName, coinBalance, lastCoinAt FROM YoutubeUsuariosMoeda WHERE userId = @chave"
+                    : "SELECT userName, coinBalance, lastCoinAt FROM YoutubeUsuariosMoeda WHERE userName = @chave COLLATE NOCASE";
+
+                string nomeExibido = null;
+                int? moedasUsuario = null;
+                string ultimoCredito = null;
+
+                using (var cmd = new SQLiteCommand(selectSql, connection))
+                {
+                    cmd.Parameters.AddWithValue("@chave", chave);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            nomeExibido = reader["userName"].ToString();
+                            moedasUsuario = Convert.ToInt32(reader["coinBalance"]);
+                            ultimoCredito = reader["lastCoinAt"] == DBNull.Value ? null : reader["lastCoinAt"].ToString();
+                        }
+                    }
+                }
+
+                if (moedasUsuario == null)
+                {
+                    CPH.SetArgument("consultarEncontrado", false);
+                    return true;
+                }
+
+                int rankUsuario;
+                using (var rankCmd = new SQLiteCommand("SELECT COUNT(*) FROM YoutubeUsuariosMoeda WHERE coinBalance > @moedas", connection))
+                {
+                    rankCmd.Parameters.AddWithValue("@moedas", moedasUsuario.Value);
+                    rankUsuario = Convert.ToInt32(rankCmd.ExecuteScalar()) + 1;
+                }
+
+                CPH.SetArgument("consultarEncontrado", true);
+                CPH.SetArgument("consultarNomeExibido", nomeExibido);
+                CPH.SetArgument("consultarMoedas", moedasUsuario.Value);
+                CPH.SetArgument("consultarRank", rankUsuario);
+            }
+
+            return true;
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_DB] ERRO ao debitar pontos: " + ex.Message);
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao consultar moedas: " + ex.Message);
+            CPH.SetArgument("consultarEncontrado", false);
             return false;
         }
     }
 
-    public bool TransferirPontos()
+    public bool AdicionarMoedasUsuario()
+    {
+        try
+        {
+            CPH.TryGetArg("adicionarOrigem", out string origem);
+            CPH.TryGetArg("adicionarUserId", out string userId);
+            CPH.TryGetArg("adicionarUserName", out string userName);
+            CPH.TryGetArg("adicionarQuantidade", out int quantidadeMoedas);
+            CPH.TryGetArg("adicionarCooldownMinutos", out int cooldownMinutos);
+            CPH.TryGetArg("adicionarBroadcastUserId", out string broadcastUserId);
+            CPH.TryGetArg("adicionarBroadcastUserName", out string broadcastUserName);
+
+            bool ehAtividadeChat = origem == "chat_atividade";
+
+            if ((string.IsNullOrEmpty(userId) && string.IsNullOrEmpty(userName)) || quantidadeMoedas <= 0)
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros inválidos para AdicionarMoedasUsuario.");
+                CPH.SetArgument("adicionarResultado", "ParametrosInvalidos");
+                return true;
+            }
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            if (!File.Exists(ambiente.CaminhoBanco))
+            {
+                CPH.SetArgument("adicionarResultado", "BancoNaoEncontrado");
+                return true;
+            }
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                using (var beginCmd = new SQLiteCommand("BEGIN IMMEDIATE;", connection))
+                {
+                    beginCmd.ExecuteNonQuery();
+                }
+
+                try
+                {
+                    // Resolve o destinatário pelo nome sempre que o userId informado não bater com
+                    // nenhum registro existente — cobre casos em que o YouTube manda um userId
+                    // diferente do que já está salvo (não só quando o userId vem vazio).
+                    string destinatarioId = userId;
+
+                    if (!string.IsNullOrEmpty(destinatarioId) && !UserIdExiste(connection, destinatarioId) && !string.IsNullOrEmpty(userName))
+                    {
+                        string idPeloNome = BuscarUserIdPorNome(connection, userName);
+                        if (!string.IsNullOrEmpty(idPeloNome))
+                        {
+                            CPH.LogInfo($">>> [GERENTE_DB] userId '{destinatarioId}' não encontrado, resolvido via nome '{userName}' -> '{idPeloNome}'.");
+                            destinatarioId = idPeloNome;
+                        }
+                    }
+                    else if (string.IsNullOrEmpty(destinatarioId) && !string.IsNullOrEmpty(userName))
+                    {
+                        destinatarioId = BuscarUserIdPorNome(connection, userName);
+                        if (string.IsNullOrEmpty(destinatarioId))
+                        {
+                            destinatarioId = userName;
+                            CPH.LogWarn($">>> [GERENTE_DB] Usuário '{userName}' não encontrado por userId — criando/creditando conta identificada pelo nome.");
+                        }
+                    }
+
+                    // Cooldown de atividade de chat: só se aplica à origem "chat_atividade" e quando
+                    // o chamador informa um valor > 0, checado na mesma transação do upsert.
+                    if (ehAtividadeChat)
+                    {
+                        DateTime? ultimoCredito = BuscarUltimoCreditoAtividade(connection, destinatarioId);
+                        if (cooldownMinutos > 0 && ultimoCredito.HasValue && (DateTime.UtcNow - ultimoCredito.Value).TotalMinutes < cooldownMinutos)
+                        {
+                            RollbackTransacao(connection);
+                            CPH.SetArgument("adicionarResultado", "EmCooldown");
+                            return true;
+                        }
+                    }
+
+                    // lastCoinAt só é tocado quando a origem é atividade de chat — doações, moedas
+                    // surpresa, importação e !adicionar não resetam o cooldown de atividade.
+                    string sql = ehAtividadeChat
+                                ? @"INSERT INTO YoutubeUsuariosMoeda (userId, userName, coinBalance, lastCoinAt, broadcastUserId, broadcastUserName)
+                                    VALUES (@userId, @userName, @quantidadeMoedas, @agora, @broadcastUserId, @broadcastUserName)
+                                    ON CONFLICT(userId) DO UPDATE SET
+                                    coinBalance = coinBalance + excluded.coinBalance,
+                                    lastCoinAt = excluded.lastCoinAt,
+                                    userName = excluded.userName,
+                                    broadcastUserId = COALESCE(excluded.broadcastUserId, broadcastUserId),
+                                    broadcastUserName = COALESCE(excluded.broadcastUserName, broadcastUserName);"
+                                : @"INSERT INTO YoutubeUsuariosMoeda (userId, userName, coinBalance, lastCoinAt, broadcastUserId, broadcastUserName)
+                                    VALUES (@userId, @userName, @quantidadeMoedas, NULL, @broadcastUserId, @broadcastUserName)
+                                    ON CONFLICT(userId) DO UPDATE SET
+                                    coinBalance = coinBalance + excluded.coinBalance,
+                                    userName = excluded.userName,
+                                    broadcastUserId = COALESCE(excluded.broadcastUserId, broadcastUserId),
+                                    broadcastUserName = COALESCE(excluded.broadcastUserName, broadcastUserName);";
+
+                    using (var cmd = new SQLiteCommand(sql, connection))
+                    {
+                        cmd.Parameters.AddWithValue("@userId", destinatarioId);
+                        cmd.Parameters.AddWithValue("@userName", userName);
+                        cmd.Parameters.AddWithValue("@quantidadeMoedas", quantidadeMoedas);
+                        if (ehAtividadeChat) cmd.Parameters.AddWithValue("@agora", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+                        cmd.Parameters.AddWithValue("@broadcastUserId", string.IsNullOrEmpty(broadcastUserId) ? (object)DBNull.Value : broadcastUserId);
+                        cmd.Parameters.AddWithValue("@broadcastUserName", (object)broadcastUserName ?? DBNull.Value);
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    using (var commitCmd = new SQLiteCommand("COMMIT;", connection))
+                    {
+                        commitCmd.ExecuteNonQuery();
+                    }
+
+                    CPH.SetArgument("adicionarResultado", "Sucesso");
+                    CPH.SetArgument("adicionarDestinatarioNomeExibido", BuscarUserNamePorId(connection, destinatarioId) ?? userName);
+                }
+                catch
+                {
+                    RollbackTransacao(connection);
+                    throw;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao adicionar moedas: " + ex.Message);
+            CPH.SetArgument("adicionarResultado", "Erro");
+            return false;
+        }
+    }
+
+    public bool TransferirMoedasUsuario()
     {
         try
         {
             CPH.TryGetArg("transferirRemetenteUserId", out string remetenteUserId);
             CPH.TryGetArg("transferirDestinatarioNome", out string destinatarioNome);
             CPH.TryGetArg("transferirQuantidade", out int quantidade);
+
             if (string.IsNullOrEmpty(remetenteUserId) || string.IsNullOrEmpty(destinatarioNome) || quantidade <= 0)
             {
-                CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros inválidos para TransferirPontos.");
+                CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros inválidos para TransferirMoedasUsuario.");
                 CPH.SetArgument("transferirResultado", "Erro");
                 return false;
             }
 
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
             using (var connection = AbrirConexao(ambiente))
             {
                 using (var beginCmd = new SQLiteCommand("BEGIN IMMEDIATE;", connection))
@@ -380,14 +584,14 @@ public class CPHInline
                         return true;
                     }
 
-                    using (var debitoCmd = new SQLiteCommand("UPDATE UserPoints SET moeda = moeda - @quantidade WHERE userId = @userId;", connection))
+                    using (var debitoCmd = new SQLiteCommand("UPDATE YoutubeUsuariosMoeda SET coinBalance = coinBalance - @quantidade WHERE userId = @userId;", connection))
                     {
                         debitoCmd.Parameters.AddWithValue("@quantidade", quantidade);
                         debitoCmd.Parameters.AddWithValue("@userId", remetenteUserId);
                         debitoCmd.ExecuteNonQuery();
                     }
 
-                    using (var creditoCmd = new SQLiteCommand("UPDATE UserPoints SET moeda = moeda + @quantidade WHERE userId = @userId;", connection))
+                    using (var creditoCmd = new SQLiteCommand("UPDATE YoutubeUsuariosMoeda SET coinBalance = coinBalance + @quantidade WHERE userId = @userId;", connection))
                     {
                         creditoCmd.Parameters.AddWithValue("@quantidade", quantidade);
                         creditoCmd.Parameters.AddWithValue("@userId", destinatarioId);
@@ -400,7 +604,6 @@ public class CPHInline
                     }
 
                     CPH.SetArgument("transferirResultado", "Sucesso");
-                    CPH.SetArgument("transferirDestinatarioId", destinatarioId);
                     CPH.SetArgument("transferirDestinatarioNomeExibido", BuscarUserNamePorId(connection, destinatarioId) ?? destinatarioNome);
                 }
                 catch
@@ -414,8 +617,271 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_DB] ERRO ao transferir pontos: " + ex.Message);
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao transferir moedas: " + ex.Message);
             CPH.SetArgument("transferirResultado", "Erro");
+            return false;
+        }
+    }
+
+    public bool DebitarMoedasUsuario()
+    {
+        try
+        {
+            CPH.TryGetArg("debitarUserId", out string userId);
+            CPH.TryGetArg("debitarBroadcastUserId", out string broadcastUserId);
+            CPH.TryGetArg("debitarCusto", out int custo);
+
+            if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(broadcastUserId))
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: userId/broadcastUserId ausente para DebitarMoedasUsuario.");
+                return false;
+            }
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            using (var cmd = new SQLiteCommand(@"UPDATE YoutubeUsuariosMoeda
+                                                    SET coinBalance = coinBalance - @custo
+                                                  WHERE userId = @userId
+                                                    AND broadcastUserId = @broadcastUserId
+                                                    AND coinBalance >= @custo;", connection))
+            {
+                cmd.Parameters.AddWithValue("@custo", custo);
+                cmd.Parameters.AddWithValue("@userId", userId);
+                cmd.Parameters.AddWithValue("@broadcastUserId", broadcastUserId);
+
+                int linhasAfetadas = cmd.ExecuteNonQuery();
+                return linhasAfetadas > 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao debitar moedas: " + ex.Message);
+            return false;
+        }
+    }
+
+    public bool SalvarChatLog()
+    {
+        try
+        {
+            CPH.TryGetArg("chatLogUserId", out string userId);
+            CPH.TryGetArg("chatLogUserName", out string userName);
+            CPH.TryGetArg("chatLogMessageId", out string messageId);
+            CPH.TryGetArg("chatLogMessage", out string message);
+            CPH.TryGetArg("chatLogBroadcastUserId", out string broadcastUserId);
+            CPH.TryGetArg("chatLogBroadcastUserName", out string broadcastUserName);
+            CPH.TryGetArg("chatLogIsSubscribed", out bool isSubscribed);
+            CPH.TryGetArg("chatLogIsSponsor", out bool isSponsor);
+            CPH.TryGetArg("chatLogIsModerator", out bool isModerator);
+            CPH.TryGetArg("chatLogUserPreviousActive", out string userPreviousActive);
+            CPH.TryGetArg("chatLogPublishedAt", out string publishedAt);
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                string insertSql = @"INSERT INTO YoutubeChatLog
+                                    (userId, userName, messageId, message, broadcastUserId, broadcastUserName, isSubscribed, isSponsor, isModerator, userPreviousActive, publishedAt)
+                                    VALUES
+                                    (@userId, @userName, @messageId, @message, @broadcastUserId, @broadcastUserName, @isSubscribed, @isSponsor, @isModerator, @userPreviousActive, @publishedAt);";
+                using (var cmd = new SQLiteCommand(insertSql, connection))
+                {
+                    cmd.Parameters.AddWithValue("@userId", userId);
+                    cmd.Parameters.AddWithValue("@userName", userName);
+                    cmd.Parameters.AddWithValue("@messageId", messageId);
+                    cmd.Parameters.AddWithValue("@message", message);
+                    cmd.Parameters.AddWithValue("@broadcastUserId", broadcastUserId);
+                    cmd.Parameters.AddWithValue("@broadcastUserName", broadcastUserName);
+                    cmd.Parameters.AddWithValue("@isSubscribed", isSubscribed ? 1 : 0);
+                    cmd.Parameters.AddWithValue("@isSponsor", isSponsor ? 1 : 0);
+                    cmd.Parameters.AddWithValue("@isModerator", isModerator ? 1 : 0);
+                    cmd.Parameters.AddWithValue("@userPreviousActive", userPreviousActive);
+                    cmd.Parameters.AddWithValue("@publishedAt", publishedAt);
+
+                    // Retry simples em caso de "database is locked" mesmo com WAL (picos de concorrência)
+                    int tentativas = 0;
+                    const int maxTentativas = 3;
+                    while (true)
+                    {
+                        try
+                        {
+                            cmd.ExecuteNonQuery();
+                            break;
+                        }
+                        catch (SQLiteException sqlEx) when (sqlEx.ResultCode == SQLiteErrorCode.Busy || sqlEx.ResultCode == SQLiteErrorCode.Locked)
+                        {
+                            tentativas++;
+                            if (tentativas >= maxTentativas)
+                                throw;
+                            CPH.LogWarn($">>> [GERENTE_DB] Banco ocupado ao salvar ChatLog, tentativa {tentativas}/{maxTentativas}...");
+                            System.Threading.Thread.Sleep(150 * tentativas);
+                        }
+                    }
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao salvar ChatLog: " + ex.Message);
+            return false;
+        }
+    }
+
+    public bool ObterProgressoMeta()
+    {
+        try
+        {
+            CPH.TryGetArg("metaBroadcastUserName", out string broadcastUserName);
+            if (string.IsNullOrEmpty(broadcastUserName))
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: broadcastUserName ausente para ObterProgressoMeta.");
+                CPH.SetArgument("metaProgressoMensal", 0);
+                return false;
+            }
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            if (!File.Exists(ambiente.CaminhoBanco))
+            {
+                CPH.SetArgument("metaProgressoMensal", 0);
+                return true;
+            }
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                string selectSql = @"SELECT COALESCE(SUM(pontosMeta), 0) FROM YoutubeDoacoes
+                                    WHERE broadcastUserName = @broadcastUserName COLLATE NOCASE AND timestamp >= date('now', 'start of month');";
+                using (var cmd = new SQLiteCommand(selectSql, connection))
+                {
+                    cmd.Parameters.AddWithValue("@broadcastUserName", broadcastUserName);
+                    var resultado = cmd.ExecuteScalar();
+                    int progresso = resultado != null ? Convert.ToInt32(resultado) : 0;
+                    CPH.SetArgument("metaProgressoMensal", progresso);
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao obter progresso da meta: " + ex.Message);
+            CPH.SetArgument("metaProgressoMensal", 0);
+            return false;
+        }
+    }
+
+    public bool VerificarDoacaoDuplicada()
+    {
+        try
+        {
+            CPH.TryGetArg("doacaoDupUserId", out string userId);
+            CPH.TryGetArg("doacaoDupBroadcastUserId", out string broadcastUserId);
+            CPH.TryGetArg("doacaoDupTipoAcao", out string tipoAcao);
+            CPH.TryGetArg("doacaoDupTier", out string tier);
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            if (!File.Exists(ambiente.CaminhoBanco))
+            {
+                CPH.SetArgument("doacaoDuplicada", false);
+                return true;
+            }
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                TimeSpan janelaDedup = TimeSpan.FromSeconds(15); // Janela de tempo do Evento
+                string limiteTimestamp = DateTime.Now.Subtract(janelaDedup).ToString("yyyy-MM-dd HH:mm:ss");
+
+                string sql = @"SELECT COUNT(*) FROM YoutubeDoacoes
+                                WHERE userId = @userId
+                                  AND broadcastUserId = @broadcastUserId
+                                  AND tipoAcao = @tipoAcao
+                                  AND tier = @tier
+                                  AND timestamp >= @limiteTimestamp;";
+                using (var cmd = new SQLiteCommand(sql, connection))
+                {
+                    cmd.Parameters.AddWithValue("@userId", userId);
+                    cmd.Parameters.AddWithValue("@broadcastUserId", broadcastUserId);
+                    cmd.Parameters.AddWithValue("@tipoAcao", tipoAcao);
+                    cmd.Parameters.AddWithValue("@tier", tier ?? "");
+                    cmd.Parameters.AddWithValue("@limiteTimestamp", limiteTimestamp);
+
+                    bool duplicado = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+
+                    CPH.SetArgument("doacaoDuplicada", duplicado);
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao checar doação duplicada: " + ex.Message);
+            CPH.SetArgument("doacaoDuplicada", false); // falha na checagem não deve bloquear uma doação real
+            return false;
+        }
+    }
+
+    public bool SalvarDoacao()
+    {
+        try
+        {
+            CPH.TryGetArg("doacaoUserId", out string userId);
+            CPH.TryGetArg("doacaoUserName", out string userName);
+            CPH.TryGetArg("doacaoTipoAcao", out string tipoAcao);
+            CPH.TryGetArg("doacaoValorOriginal", out double valorOriginal);
+            CPH.TryGetArg("doacaoMoedaOrigem", out string moedaOrigem);
+            CPH.TryGetArg("doacaoValorBRL", out double valorBRL);
+            CPH.TryGetArg("doacaoPontosMeta", out int pontosMeta);
+            CPH.TryGetArg("doacaoMoedaGanha", out int moedaGanha);
+            CPH.TryGetArg("doacaoMultiplicador", out int multiplicador);
+            CPH.TryGetArg("doacaoBroadcastUserId", out string broadcastUserId);
+            CPH.TryGetArg("doacaoBroadcastUserName", out string broadcastUserName);
+            CPH.TryGetArg("doacaoTier", out string tier);
+            CPH.TryGetArg("doacaoBroadcastId", out string broadcastId);
+            CPH.TryGetArg("doacaoMessageId", out string messageId);
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                string insertSql = @"INSERT INTO YoutubeDoacoes
+                                    (userId, userName, tipoAcao, valorOriginal, moedaOrigem, valorBRL, pontosMeta, moedaGanha, multiplicador, broadcastUserId, broadcastUserName, timestamp, tier, broadcastId, messageId)
+                                    VALUES (@userId, @userName, @tipoAcao, @valorOriginal, @moedaOrigem, @valorBRL, @pontosMeta, @moedaGanha, @multiplicador, @broadcastUserId, @broadcastUserName, @timestamp, @tier, @broadcastId, @messageId);";
+                using (var cmd = new SQLiteCommand(insertSql, connection))
+                {
+                    cmd.Parameters.AddWithValue("@userId", userId);
+                    cmd.Parameters.AddWithValue("@userName", userName);
+                    cmd.Parameters.AddWithValue("@tipoAcao", tipoAcao);
+                    cmd.Parameters.AddWithValue("@valorOriginal", valorOriginal);
+                    cmd.Parameters.AddWithValue("@moedaOrigem", moedaOrigem ?? "BRL");
+                    cmd.Parameters.AddWithValue("@valorBRL", valorBRL);
+                    cmd.Parameters.AddWithValue("@pontosMeta", pontosMeta);
+                    cmd.Parameters.AddWithValue("@moedaGanha", moedaGanha);
+                    cmd.Parameters.AddWithValue("@multiplicador", multiplicador);
+                    cmd.Parameters.AddWithValue("@broadcastUserId", broadcastUserId);
+                    cmd.Parameters.AddWithValue("@broadcastUserName", broadcastUserName);
+                    cmd.Parameters.AddWithValue("@timestamp", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    cmd.Parameters.AddWithValue("@tier", (object)tier ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@broadcastId", (object)broadcastId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@messageId", (object)messageId ?? DBNull.Value);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao salvar doação: " + ex.Message);
             return false;
         }
     }
@@ -475,7 +941,7 @@ public class CPHInline
 
     private int ObterSaldoUsuario(SQLiteConnection connection, string userId)
     {
-        using (var cmd = new SQLiteCommand("SELECT moeda FROM UserPoints WHERE userId = @userId", connection))
+        using (var cmd = new SQLiteCommand("SELECT coinBalance FROM YoutubeUsuariosMoeda WHERE userId = @userId", connection))
         {
             cmd.Parameters.AddWithValue("@userId", userId);
             var resultado = cmd.ExecuteScalar();
@@ -485,7 +951,7 @@ public class CPHInline
 
     private string BuscarUserIdPorNome(SQLiteConnection connection, string userName)
     {
-        using (var cmd = new SQLiteCommand("SELECT userId FROM UserPoints WHERE userName = @userName COLLATE NOCASE LIMIT 1", connection))
+        using (var cmd = new SQLiteCommand("SELECT userId FROM YoutubeUsuariosMoeda WHERE userName = @userName COLLATE NOCASE ORDER BY CASE WHEN userId LIKE 'UC%' THEN 0 ELSE 1 END LIMIT 1", connection))
         {
             cmd.Parameters.AddWithValue("@userName", userName);
             var resultado = cmd.ExecuteScalar();
@@ -493,9 +959,29 @@ public class CPHInline
         }
     }
 
+    private bool UserIdExiste(SQLiteConnection connection, string userId)
+    {
+        using (var cmd = new SQLiteCommand("SELECT 1 FROM YoutubeUsuariosMoeda WHERE userId = @userId LIMIT 1", connection))
+        {
+            cmd.Parameters.AddWithValue("@userId", userId);
+            return cmd.ExecuteScalar() != null;
+        }
+    }
+
+    private DateTime? BuscarUltimoCreditoAtividade(SQLiteConnection connection, string userId)
+    {
+        using (var cmd = new SQLiteCommand("SELECT lastCoinAt FROM YoutubeUsuariosMoeda WHERE userId = @userId", connection))
+        {
+            cmd.Parameters.AddWithValue("@userId", userId);
+            var resultado = cmd.ExecuteScalar();
+            if (resultado == null || resultado == DBNull.Value) return null;
+            return DateTime.Parse(resultado.ToString());
+        }
+    }
+
     private string BuscarUserNamePorId(SQLiteConnection connection, string userId)
     {
-        using (var cmd = new SQLiteCommand("SELECT userName FROM UserPoints WHERE userId = @userId", connection))
+        using (var cmd = new SQLiteCommand("SELECT userName FROM YoutubeUsuariosMoeda WHERE userId = @userId", connection))
         {
             cmd.Parameters.AddWithValue("@userId", userId);
             var resultado = cmd.ExecuteScalar();
