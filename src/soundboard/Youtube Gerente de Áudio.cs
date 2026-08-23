@@ -5,7 +5,7 @@ using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260722.1855
+// Atualização 260820.2120
 public class CPHInline
 {
     public bool Execute()
@@ -20,7 +20,7 @@ public class CPHInline
     {
         try
         {
-            CPH.TryGetArg("contextoMensagem", out string contextoJson);
+            CPH.TryGetArg("contextoJson", out string contextoJson);
             var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
 
             if (contexto?.Evento == null || contexto.Ambiente == null)
@@ -134,7 +134,7 @@ public class CPHInline
             }
 
             string listaAliases = string.Join(", ", aliases);
-            CPH.SendYouTubeMessage($"✅ Áudio #{grupoId}: '{arquivo}' cadastrado! Comandos: {listaAliases}. Custo: {custo:N0} pontos. Cooldown: {cooldownSegundos}s.");
+            CPH.SendYouTubeMessage($"✅ Áudio #{grupoId}: '{arquivo}' cadastrado! Comandos: {listaAliases}. Custo: {custo:N0} Moedas. Cooldown: {cooldownSegundos}s.");
             return true;
         }
         catch (Exception ex)
@@ -226,7 +226,7 @@ public class CPHInline
     {
         try
         {
-            CPH.TryGetArg("contextoMensagem", out string contextoJson);
+            CPH.TryGetArg("contextoJson", out string contextoJson);
             var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
             if (contexto?.Evento == null || contexto.Ambiente == null)
             {
@@ -284,11 +284,11 @@ public class CPHInline
                 CPH.SetArgument("debitarUserId", evento.UserId);
                 CPH.SetArgument("debitarBroadcastUserId", evento.BroadcastUserId);
                 CPH.SetArgument("debitarCusto", custo);
-                
-                bool debitou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "DebitarPontos");
+
+                bool debitou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "DebitarMoedasUsuario");
                 if (!debitou)
                 {
-                    CPH.SendYouTubeMessage($"❌ @{evento.UserName}, saldo insuficiente (custo: {custo:N0} pontos).");
+                    CPH.SendYouTubeMessage($"❌ @{evento.UserName}, saldo insuficiente (custo: {custo:N0} Moedas).");
                     return true;
                 }
             }
