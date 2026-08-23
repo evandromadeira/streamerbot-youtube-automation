@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260722.1855
+// Atualização 260822.1600
 public class CPHInline
 {
     public bool Execute()
@@ -21,10 +21,11 @@ public class CPHInline
 
             // Serializa para JSON uma única vez
             string contextoJson = JsonConvert.SerializeObject(contexto);
-            CPH.SetArgument("contextoMensagem", contextoJson);
+            CPH.SetArgument("contextoJson", contextoJson);
 
-            // Log de chat - Salvar mensagem na tabela ChatLog
+            // Log de chat - Salvar mensagem na tabela YoutubeChatLog
             CPH.RunAction("Youtube Salvar Mensagem", true);
+
             // Comandos de Chat
             if (!string.IsNullOrEmpty(evento.MessageText) && evento.MessageText.StartsWith("!"))
             {
@@ -46,8 +47,18 @@ public class CPHInline
         string comando = message.Split(' ')[0].ToLower();
         switch (comando)
         {
-            case "!pontos":
-                CPH.RunAction("Youtube Consultar Pontos", false);
+            case "!saldo":
+                CPH.ExecuteMethod("Youtube Gerente de Moedas", "SaldoMoedasUsuario");
+                break;
+            case "!adicionar":
+                CPH.SetArgument("origem", "chat_adicionar");
+                CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
+                break;
+            case "!transferir":
+                CPH.ExecuteMethod("Youtube Gerente de Moedas", "TransferirMoedasUsuario");
+                break;
+            case "!importar":
+                CPH.ExecuteMethod("Youtube Importar Moedas SE", "ImportarMoedasStreamElements");
                 break;
             case "!meta":
                 CPH.RunAction("Youtube Consultar Meta", false);
@@ -58,18 +69,16 @@ public class CPHInline
             case "!audios":
                 CPH.ExecuteMethod("Youtube Gerente de Áudio", "ListarAudios");
                 break;
-            case "!transferir":
-                CPH.RunAction("Youtube Transferir Pontos", false);
-                break;
             default:
                 bool audioTocado = CPH.ExecuteMethod("Youtube Gerente de Áudio", "ReproduzirAudio");
                 if (audioTocado)
                     break;
 
                 // Desafio de Palavra Surpresa
-                var pontosSurpresaPalavra = CPH.GetGlobalVar<string>("pontosSurpresaPalavra", true);
+                var moedasSurpresaPalavra = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true);
                 var actionComparaPalavra = CPH.GetActions().FirstOrDefault(a => a.Name.Equals("Youtube Compara Palavra", StringComparison.OrdinalIgnoreCase));
-                if (!string.IsNullOrEmpty(pontosSurpresaPalavra) && actionComparaPalavra != null && actionComparaPalavra.Enabled)
+
+                if (!string.IsNullOrEmpty(moedasSurpresaPalavra) && actionComparaPalavra != null && actionComparaPalavra.Enabled)
                 {
                     CPH.RunAction("Youtube Compara Palavra", false);
                 }
@@ -132,7 +141,11 @@ public class CPHInline
         public string PastaRaiz { get; set; }
         public string PastaStream { get; set; }
         public string PastaAudios { get; set; }
+        public string PastaSE { get; set; }
+        public string CaminhoConfigSE { get; set; }
         public string CaminhoBanco { get; set; }
+
+
 
         // Construtor vazio necessário para deserialização
         public Ambiente()
@@ -142,8 +155,11 @@ public class CPHInline
         public Ambiente(IInlineInvokeProxy CPH)
         {
             PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true) ?? "";
+            PastaSE = CPH.GetGlobalVar<string>("caminhoPastaStreamElements", true) ?? "";
+
             PastaStream = Path.Combine(PastaRaiz, "Data", "YoutubeStream");
             PastaAudios = Path.Combine(PastaRaiz, "Data", "Audios");
+            CaminhoConfigSE = Path.Combine(PastaSE, "ConfigSE.txt");
             CaminhoBanco = Path.Combine(PastaStream, "YoutubeStream.db");
         }
     }
