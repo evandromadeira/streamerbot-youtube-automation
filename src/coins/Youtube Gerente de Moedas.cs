@@ -1,7 +1,7 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260823.0920
+// Atualização 260824.0945
 public class CPHInline
 {
     public bool SaldoMoedasUsuario()
@@ -110,6 +110,12 @@ public class CPHInline
 
                 var evento = contexto.Evento;
                 senderUserName = evento.UserName;
+
+                if (!evento.IsMod)
+                {
+                    CPH.SendYouTubeMessage($"❌ @{evento.UserName}, apenas moderadores podem usar !adicionar.");
+                    return false;
+                }
 
                 string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                 if (partes.Length != 3)
@@ -272,6 +278,8 @@ public class CPHInline
 
     public class Evento
     {
+        public bool IsMod { get; set; }
+
         public string UserId { get; set; }
         public string UserName { get; set; }
         public string MessageText { get; set; }
