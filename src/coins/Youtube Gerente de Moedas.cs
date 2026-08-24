@@ -141,13 +141,12 @@ public class CPHInline
                 CPH.SetArgument("adicionarBroadcastUserName", evento.BroadcastUserName);
             }
 
+            CPH.TryGetArg("cooldownMinutos", out int cooldownMinutos);
+
+            CPH.SetArgument("adicionarOrigem", origem);
             CPH.SetArgument("adicionarUserId", targetUserId);
             CPH.SetArgument("adicionarUserName", targetUserName);
             CPH.SetArgument("adicionarQuantidade", coinsToAdd);
-            CPH.SetArgument("adicionarOrigem", origem);
-
-            CPH.TryGetArg("cooldownMinutos", out int cooldownMinutos);
-
             CPH.SetArgument("adicionarCooldownMinutos", cooldownMinutos);
 
             bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "AdicionarMoedasUsuario");
@@ -187,6 +186,53 @@ public class CPHInline
         {
             CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao adicionar moedas: " + ex.Message);
             CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
+            return false;
+        }
+    }
+
+    public bool RecompensarAtividadeChat()
+    {
+        try
+        {
+            CPH.TryGetArg("contextoJson", out string contextoJson);
+
+            var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
+            if (contexto?.Evento == null)
+            {
+                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: contexto ausente ou inválido.");
+                return false;
+            }
+
+            var evento = contexto.Evento;
+
+            int moedasPorMensagem = 10;
+            int cooldownMinutos = 10;
+            int multiplicador = 1;
+
+            if (evento.IsSpo) multiplicador++;
+            if (evento.IsSub) multiplicador++;
+
+            moedasPorMensagem *= multiplicador;
+
+            CPH.SetArgument("origem", "chat_atividade");
+            CPH.SetArgument("targetUserId", evento.UserId);
+            CPH.SetArgument("targetUserName", evento.UserName);
+            CPH.SetArgument("coinsToAdd", moedasPorMensagem);
+            CPH.SetArgument("cooldownMinutos", cooldownMinutos);
+            CPH.SetArgument("broadcastUserId", evento.BroadcastUserId);
+            CPH.SetArgument("broadcastUserName", evento.BroadcastUserName);
+
+            bool creditou = AdicionarMoedasUsuario();
+            if (!creditou)
+            {
+                CPH.LogError($">>> [GERENTE_MOEDAS] ERRO: falha ao creditar moedas de atividade de chat para @{evento.UserName}.");
+            }
+
+            return creditou;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao creditar moedas de chat: " + ex.Message);
             return false;
         }
     }
@@ -278,6 +324,8 @@ public class CPHInline
 
     public class Evento
     {
+        public bool IsSub { get; set; }
+        public bool IsSpo { get; set; }
         public bool IsMod { get; set; }
 
         public string UserId { get; set; }
