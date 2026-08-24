@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260822.1600
+// Atualização 260824.1500
 public class CPHInline
 {
     public bool Execute()
@@ -23,8 +23,36 @@ public class CPHInline
             string contextoJson = JsonConvert.SerializeObject(contexto);
             CPH.SetArgument("contextoJson", contextoJson);
 
-            // Log de chat - Salvar mensagem na tabela YoutubeChatLog
-            CPH.RunAction("Youtube Salvar Mensagem", true);
+            CPH.SetArgument("chatLogIsSubscribed", evento.IsSub);
+            CPH.SetArgument("chatLogIsSponsor", evento.IsSpo);
+            CPH.SetArgument("chatLogIsModerator", evento.IsMod);
+            CPH.SetArgument("chatLogUserId", evento.UserId);
+            CPH.SetArgument("chatLogUserName", evento.UserName);
+            CPH.SetArgument("chatLogUserPreviousActive", evento.UserPreviousActive);
+            CPH.SetArgument("chatLogMessageId", evento.MessageId);
+            CPH.SetArgument("chatLogMessage", evento.MessageText);
+            CPH.SetArgument("chatLogPublishedAt", evento.PublishedAt);
+            CPH.SetArgument("chatLogBroadcastUserId", evento.BroadcastUserId);
+            CPH.SetArgument("chatLogBroadcastUserName", evento.BroadcastUserName);
+
+            bool salvou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SalvarChatLog");
+            if (!salvou)
+            {
+                CPH.LogError(">>> [GERENTE DE CHAT] ERRO: falha ao salvar mensagem no banco de dados.");
+                return false;
+            }
+
+            CPH.LogDebug(">>> [GERENTE DE CHAT] DADO SALVO COM SUCESSO!");
+
+            bool creditou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "RecompensarAtividadeChat");
+            if (!creditou)
+            {
+                CPH.LogError(">>> [GERENTE DE CHAT] ERRO: falha ao creditar moedas para o usuário.");
+            }
+            else
+            {
+                CPH.LogDebug(">>> [GERENTE DE CHAT] MOEDAS CREDITADAS COM SUCESSO!");
+            }
 
             // Comandos de Chat
             if (!string.IsNullOrEmpty(evento.MessageText) && evento.MessageText.StartsWith("!"))
@@ -84,7 +112,8 @@ public class CPHInline
                 }
                 else
                 {
-                    CPH.SendYouTubeMessage($"@{userName} - Comando desconhecido: {comando}");
+                    // Mensagem desativada para não poluir o chat com mensagens de comando desconhecido
+                    // CPH.SendYouTubeMessage($"@{userName} - Comando desconhecido: {comando}");
                     CPH.LogDebug($">>> [GERENTE DE CHAT] @{userName} - Comando desconhecido: {comando}");
                 }
 
@@ -105,7 +134,10 @@ public class CPHInline
         public bool IsMod { get; set; }
         public string UserId { get; set; }
         public string UserName { get; set; }
+        public string UserPreviousActive { get; set; }
+        public string MessageId { get; set; }
         public string MessageText { get; set; }
+        public string PublishedAt { get; set; }
         public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
 
@@ -120,7 +152,9 @@ public class CPHInline
             CPH.TryGetArg("userIsSponsor", out bool isSpo);
             CPH.TryGetArg("isModerator", out bool isMod);
             CPH.TryGetArg("userId", out string userId);
-            CPH.TryGetArg("user", out string userName);
+            CPH.TryGetArg("userName", out string userName);
+            CPH.TryGetArg("userPreviousActive", out DateTime userPreviousActive);
+            CPH.TryGetArg("messageId", out string messageId);
             CPH.TryGetArg("message", out string messageText);
             CPH.TryGetArg("broadcastUserId", out string bUserId);
             CPH.TryGetArg("broadcastUserName", out string bUserName);
@@ -130,7 +164,10 @@ public class CPHInline
             IsMod = isMod;
             UserId = userId;
             UserName = userName;
+            UserPreviousActive = userPreviousActive != DateTime.MinValue ? userPreviousActive.ToString("yyyy-MM-dd HH:mm:ss") : "Primeira Mensagem";
+            MessageId = messageId;
             MessageText = messageText;
+            PublishedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             BroadcastUserId = bUserId;
             BroadcastUserName = string.IsNullOrEmpty(bUserName) ? "YOUTUBE" : bUserName;
         }
