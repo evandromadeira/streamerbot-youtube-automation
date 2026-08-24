@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-// Atualização 260820.1955
+// Atualização 260824.1135
 public class CPHInline
 {
     public bool Execute()
@@ -16,26 +16,25 @@ public class CPHInline
 
             List<string> palavras = new List<string>
             {
-                "!batatadoce",
                 "!batatafrita",
                 "!biscoito",
                 "!bixcoito",
                 "!bolacha",
-                "!borabora",
-                "!brotinhos",
-                "!brotoins",
                 "!cafe",
-                "!campeirinho",
                 "!cha",
                 "!chocolate",
                 "!deixaolike",
-                "!fogonocampinho",
-                "!gravetoins",
+                "!diaboverde",
+                "!larinha",
                 "!letsbora",
                 "!milmoedas",
+                "!milpontos",
+                "!moooca",
+                "!moedasgratis",
                 "!oncadeirinho",
+                "!pontosgratis",
+                "!porcorosa",
                 "!pizza",
-                "!moedasgratis"
             };
 
             // Escolhe uma palavra aleatória da lista
