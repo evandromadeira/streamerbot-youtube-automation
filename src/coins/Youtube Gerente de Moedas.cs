@@ -1,7 +1,8 @@
 using System;
+using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260824.0945
+// Atualização 260830.1045
 public class CPHInline
 {
     public bool SaldoMoedasUsuario()
@@ -60,6 +61,107 @@ public class CPHInline
             CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao consultar moedas: " + ex.Message);
             CPH.SendYouTubeMessage("❌ Falha técnica ao consultar moedas.");
             return false;
+        }
+    }
+
+    public bool TopMoedas()
+    {
+        try
+        {
+            CPH.TryGetArg("contextoJson", out string contextoJson);
+
+            var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
+            if (contexto?.Evento == null)
+            {
+                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: contexto ausente ou inválido.");
+                return false;
+            }
+
+            var evento = contexto.Evento;
+            string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            int limiteMaximo = evento.IsMod ? 100 : 10;
+
+            if (partes.Length != 2 || !int.TryParse(partes[1], out int quantidade) || quantidade <= 0)
+            {
+                CPH.SendYouTubeMessage($"⚠ Uso correto: !topmoedas [quantidade] (máximo {limiteMaximo})");
+                return false;
+            }
+
+            if (quantidade > limiteMaximo)
+            {
+                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, o máximo permitido é {limiteMaximo}.");
+                return false;
+            }
+
+            CPH.SetArgument("topMoedasQuantidade", quantidade);
+
+            bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ConsultarTopMoedas");
+            if (!executou)
+            {
+                CPH.SendYouTubeMessage("❌ Falha técnica ao consultar o top de moedas.");
+                return false;
+            }
+
+            CPH.TryGetArg("topMoedasResultadoJson", out string resultadoJson);
+            var itens = string.IsNullOrEmpty(resultadoJson) ? null : JsonConvert.DeserializeObject<List<TopMoedaItem>>(resultadoJson);
+
+            if (itens == null || itens.Count == 0)
+            {
+                CPH.SendYouTubeMessage("ℹ Ainda não há moedas registradas.");
+                return true;
+            }
+
+            EnviarTopMoedas(itens);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao consultar top de moedas: " + ex.Message);
+            CPH.SendYouTubeMessage("❌ Falha técnica ao consultar o top de moedas.");
+            return false;
+        }
+    }
+
+    private void EnviarTopMoedas(List<TopMoedaItem> itens)
+    {
+        const string prefixo = "Top Moedas: ";
+        const int limiteCaracteres = 200;
+
+        var mensagens = new List<string>();
+        string mensagemAtual = prefixo;
+
+        foreach (var item in itens)
+        {
+            string medalha = item.Rank switch
+            {
+                1 => "🥇",
+                2 => "🥈",
+                3 => "🥉",
+                _ => ""
+            };
+
+            string trecho = $"{medalha}(#{item.Rank}) - @{item.NomeExibido}: {item.Moedas:N0} |";
+            string candidata = mensagemAtual == prefixo ? prefixo + trecho : mensagemAtual + " " + trecho;
+
+            if (candidata.Length > limiteCaracteres)
+            {
+                mensagens.Add(mensagemAtual);
+                mensagemAtual = prefixo + trecho;
+            }
+            else
+            {
+                mensagemAtual = candidata;
+            }
+        }
+
+        if (mensagemAtual != prefixo)
+            mensagens.Add(mensagemAtual);
+
+        foreach (var mensagem in mensagens)
+        {
+            CPH.SendYouTubeMessage(mensagem);
+            CPH.Wait(300);
         }
     }
 
@@ -333,5 +435,12 @@ public class CPHInline
         public string MessageText { get; set; }
         public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
+    }
+
+    public class TopMoedaItem
+    {
+        public int Rank { get; set; }
+        public string NomeExibido { get; set; }
+        public int Moedas { get; set; }
     }
 }

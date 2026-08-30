@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260823.1000
+// Atualização 260830.1045
 public class CPHInline
 {
     private static readonly HashSet<string> TabelasPermitidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -82,6 +82,29 @@ public class CPHInline
                     isModerator INTEGER,
                     userPreviousActive TEXT,
                     publishedAt TEXT);");
+
+                Executar(connection, @"CREATE TABLE IF NOT EXISTS YoutubePalpites (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    description TEXT NOT NULL,
+                    options TEXT NOT NULL,
+                    durationSeconds INTEGER NOT NULL,
+                    createdAt TEXT NOT NULL,
+                    endsAt TEXT NOT NULL,
+                    createdByUserId TEXT NOT NULL,
+                    createdByUserName TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    broadcastUserId TEXT,
+                    broadcastUserName TEXT);");
+
+                Executar(connection, @"CREATE TABLE IF NOT EXISTS YoutubePalpiteRespostas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    predictionId INTEGER NOT NULL,
+                    userId TEXT NOT NULL,
+                    userName TEXT NOT NULL,
+                    chosenOption TEXT NOT NULL,
+                    betAmount INTEGER NOT NULL DEFAULT 0,
+                    betAt TEXT NOT NULL,
+                    UNIQUE(predictionId, userId));");
 
                 // ------------------------------------------------------------------
                 // Migrações incrementais
@@ -402,6 +425,74 @@ public class CPHInline
         }
     }
 
+    public bool ConsultarTopMoedas()
+    {
+        try
+        {
+            CPH.TryGetArg("topMoedasQuantidade", out int quantidade);
+            if (quantidade <= 0)
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: quantidade inválida para ConsultarTopMoedas.");
+                CPH.SetArgument("topMoedasResultadoJson", "[]");
+                return false;
+            }
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            if (!File.Exists(ambiente.CaminhoBanco))
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: banco de dados não encontrado para ConsultarTopMoedas.");
+                CPH.SetArgument("topMoedasResultadoJson", "[]");
+                return false;
+            }
+
+            var itens = new List<TopMoedaItem>();
+            using (var connection = AbrirConexao(ambiente))
+            {
+                string sql = @"SELECT userName, coinBalance
+                                 FROM YoutubeUsuariosMoeda
+                                ORDER BY coinBalance DESC, userName COLLATE NOCASE ASC
+                                LIMIT @quantidade;";
+                using (var cmd = new SQLiteCommand(sql, connection))
+                {
+                    cmd.Parameters.AddWithValue("@quantidade", quantidade);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        int? saldoAnterior = null;
+                        int rankAnterior = 0;
+                        int posicao = 0;
+                        while (reader.Read())
+                        {
+                            posicao++;
+                            int saldo = Convert.ToInt32(reader["coinBalance"]);
+                            int rank = (saldoAnterior.HasValue && saldo == saldoAnterior.Value) ? rankAnterior : posicao;
+
+                            itens.Add(new TopMoedaItem
+                            {
+                                Rank = rank,
+                                NomeExibido = reader["userName"].ToString(),
+                                Moedas = saldo
+                            });
+
+                            saldoAnterior = saldo;
+                            rankAnterior = rank;
+                        }
+                    }
+                }
+            }
+
+            CPH.SetArgument("topMoedasResultadoJson", JsonConvert.SerializeObject(itens));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao consultar top de moedas: " + ex.Message);
+            CPH.SetArgument("topMoedasResultadoJson", "[]");
+            return false;
+        }
+    }
+
     public bool AdicionarMoedasUsuario()
     {
         try
@@ -658,6 +749,256 @@ public class CPHInline
         catch (Exception ex)
         {
             CPH.LogError(">>> [GERENTE_DB] ERRO ao debitar moedas: " + ex.Message);
+            return false;
+        }
+    }
+
+    public bool CriarPalpite()
+    {
+        try
+        {
+            CPH.TryGetArg("novoPalpiteDescription", out string description);
+            CPH.TryGetArg("novoPalpiteOptions", out string options);
+            CPH.TryGetArg("novoPalpiteDurationSeconds", out int durationSeconds);
+            CPH.TryGetArg("novoPalpiteCreatedAt", out string createdAt);
+            CPH.TryGetArg("novoPalpiteEndsAt", out string endsAt);
+            CPH.TryGetArg("novoPalpiteCreatedByUserId", out string createdByUserId);
+            CPH.TryGetArg("novoPalpiteCreatedByUserName", out string createdByUserName);
+            CPH.TryGetArg("novoPalpiteBroadcastUserId", out string broadcastUserId);
+            CPH.TryGetArg("novoPalpiteBroadcastUserName", out string broadcastUserName);
+
+            if (string.IsNullOrEmpty(description) || string.IsNullOrEmpty(options) || durationSeconds <= 0)
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros inválidos para CriarPalpite.");
+                CPH.SetArgument("criarPalpiteResultado", "Erro");
+                return true;
+            }
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                using (var beginCmd = new SQLiteCommand("BEGIN IMMEDIATE;", connection))
+                {
+                    beginCmd.ExecuteNonQuery();
+                }
+
+                try
+                {
+                    using (var checkCmd = new SQLiteCommand("SELECT 1 FROM YoutubePalpites WHERE status = 'open' LIMIT 1", connection))
+                    {
+                        var existente = checkCmd.ExecuteScalar();
+                        if (existente != null)
+                        {
+                            RollbackTransacao(connection);
+                            CPH.SetArgument("criarPalpiteResultado", "RodadaJaAberta");
+                            return true;
+                        }
+                    }
+
+                    using (var insertCmd = new SQLiteCommand(@"INSERT INTO YoutubePalpites
+                                        (description, options, durationSeconds, createdAt, endsAt, createdByUserId, createdByUserName, status, broadcastUserId, broadcastUserName)
+                                        VALUES (@description, @options, @durationSeconds, @createdAt, @endsAt, @createdByUserId, @createdByUserName, 'open', @broadcastUserId, @broadcastUserName);", connection))
+                    {
+                        insertCmd.Parameters.AddWithValue("@description", description);
+                        insertCmd.Parameters.AddWithValue("@options", options);
+                        insertCmd.Parameters.AddWithValue("@durationSeconds", durationSeconds);
+                        insertCmd.Parameters.AddWithValue("@createdAt", createdAt);
+                        insertCmd.Parameters.AddWithValue("@endsAt", endsAt);
+                        insertCmd.Parameters.AddWithValue("@createdByUserId", createdByUserId);
+                        insertCmd.Parameters.AddWithValue("@createdByUserName", createdByUserName);
+                        insertCmd.Parameters.AddWithValue("@broadcastUserId", (object)broadcastUserId ?? DBNull.Value);
+                        insertCmd.Parameters.AddWithValue("@broadcastUserName", (object)broadcastUserName ?? DBNull.Value);
+                        insertCmd.ExecuteNonQuery();
+                    }
+
+                    using (var commitCmd = new SQLiteCommand("COMMIT;", connection))
+                    {
+                        commitCmd.ExecuteNonQuery();
+                    }
+
+                    CPH.SetArgument("criarPalpiteResultado", "Sucesso");
+                }
+                catch
+                {
+                    RollbackTransacao(connection);
+                    throw;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao criar palpite: " + ex.Message);
+            CPH.SetArgument("criarPalpiteResultado", "Erro");
+            return false;
+        }
+    }
+
+    public bool ApostarPalpite()
+    {
+        try
+        {
+            CPH.TryGetArg("apostarPalpiteUserId", out string userId);
+            CPH.TryGetArg("apostarPalpiteUserName", out string userName);
+            CPH.TryGetArg("apostarPalpiteOption", out string option);
+            CPH.TryGetArg("apostarPalpiteValor", out int valor);
+            CPH.TryGetArg("apostarPalpiteBroadcastUserId", out string broadcastUserId);
+
+            if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(option) || valor <= 0)
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros inválidos para ApostarPalpite.");
+                CPH.SetArgument("apostarPalpiteResultado", "Erro");
+                return true;
+            }
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                using (var beginCmd = new SQLiteCommand("BEGIN IMMEDIATE;", connection))
+                {
+                    beginCmd.ExecuteNonQuery();
+                }
+
+                try
+                {
+                    int predictionId = 0;
+                    string optionsRaw = null;
+                    string endsAtRaw = null;
+                    string agora = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    using (var cmd = new SQLiteCommand("SELECT id, options, endsAt FROM YoutubePalpites WHERE status = 'open' ORDER BY id DESC LIMIT 1", connection))
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            predictionId = Convert.ToInt32(reader["id"]);
+                            optionsRaw = reader["options"].ToString();
+                            endsAtRaw = reader["endsAt"].ToString();
+                        }
+                    }
+
+                    if (predictionId == 0)
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("apostarPalpiteResultado", "SemRodadaAberta");
+                        return true;
+                    }
+
+                    if (DateTime.Parse(endsAtRaw) <= DateTime.Parse(agora))
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("apostarPalpiteResultado", "RodadaEncerrada");
+                        return true;
+                    }
+
+                    var options = optionsRaw.Split(';');
+                    int indiceOpcao = option[0] - 'a';
+                    if (indiceOpcao < 0 || indiceOpcao >= options.Length)
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("apostarPalpiteResultado", "OpcaoInvalida");
+                        return true;
+                    }
+
+                    int saldoAtual = ObterSaldoUsuario(connection, userId);
+                    if (saldoAtual < valor)
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("apostarPalpiteResultado", "SaldoInsuficiente");
+                        CPH.SetArgument("apostarPalpiteSaldoAtual", saldoAtual);
+                        return true;
+                    }
+
+                    int totalUsuario = valor;
+
+                    string chosenOptionExistente = null;
+                    using (var cmd = new SQLiteCommand("SELECT chosenOption FROM YoutubePalpiteRespostas WHERE predictionId = @predictionId AND userId = @userId", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@predictionId", predictionId);
+                        cmd.Parameters.AddWithValue("@userId", userId);
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                                chosenOptionExistente = reader["chosenOption"].ToString();
+                        }
+                    }
+
+                    if (chosenOptionExistente != null && !string.Equals(chosenOptionExistente, option, StringComparison.OrdinalIgnoreCase))
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("apostarPalpiteResultado", "OpcaoDiferente");
+                        CPH.SetArgument("apostarPalpiteOpcaoAtual", chosenOptionExistente);
+                        return true;
+                    }
+
+                    if (chosenOptionExistente != null)
+                    {
+                        using (var updateCmd = new SQLiteCommand(@"UPDATE YoutubePalpiteRespostas
+                                                                    SET betAmount = betAmount + @valor, betAt = @agora
+                                                                  WHERE predictionId = @predictionId AND userId = @userId;", connection))
+                        {
+                            updateCmd.Parameters.AddWithValue("@valor", valor);
+                            updateCmd.Parameters.AddWithValue("@agora", agora);
+                            updateCmd.Parameters.AddWithValue("@predictionId", predictionId);
+                            updateCmd.Parameters.AddWithValue("@userId", userId);
+                            updateCmd.ExecuteNonQuery();
+                        }
+
+                        using (var totalCmd = new SQLiteCommand("SELECT betAmount FROM YoutubePalpiteRespostas WHERE predictionId = @predictionId AND userId = @userId", connection))
+                        {
+                            totalCmd.Parameters.AddWithValue("@predictionId", predictionId);
+                            totalCmd.Parameters.AddWithValue("@userId", userId);
+                            totalUsuario = Convert.ToInt32(totalCmd.ExecuteScalar());
+                        }
+                    }
+                    else
+                    {
+                        using (var insertCmd = new SQLiteCommand(@"INSERT INTO YoutubePalpiteRespostas
+                                            (predictionId, userId, userName, chosenOption, betAmount, betAt)
+                                            VALUES (@predictionId, @userId, @userName, @chosenOption, @valor, @agora);", connection))
+                        {
+                            insertCmd.Parameters.AddWithValue("@predictionId", predictionId);
+                            insertCmd.Parameters.AddWithValue("@userId", userId);
+                            insertCmd.Parameters.AddWithValue("@userName", userName);
+                            insertCmd.Parameters.AddWithValue("@chosenOption", option);
+                            insertCmd.Parameters.AddWithValue("@valor", valor);
+                            insertCmd.Parameters.AddWithValue("@agora", agora);
+                            insertCmd.ExecuteNonQuery();
+                        }
+                    }
+
+                    using (var debitoCmd = new SQLiteCommand("UPDATE YoutubeUsuariosMoeda SET coinBalance = coinBalance - @valor WHERE userId = @userId;", connection))
+                    {
+                        debitoCmd.Parameters.AddWithValue("@valor", valor);
+                        debitoCmd.Parameters.AddWithValue("@userId", userId);
+                        debitoCmd.ExecuteNonQuery();
+                    }
+
+                    using (var commitCmd = new SQLiteCommand("COMMIT;", connection))
+                    {
+                        commitCmd.ExecuteNonQuery();
+                    }
+
+                    CPH.SetArgument("apostarPalpiteResultado", "Sucesso");
+                    CPH.SetArgument("apostarPalpiteTotalUsuario", totalUsuario);
+                }
+                catch
+                {
+                    RollbackTransacao(connection);
+                    throw;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao registrar aposta de palpite: " + ex.Message);
+            CPH.SetArgument("apostarPalpiteResultado", "Erro");
             return false;
         }
     }
@@ -994,6 +1335,13 @@ public class CPHInline
         public int GrupoId { get; set; }
         public string Comando { get; set; }
         public int Custo { get; set; }
+    }
+
+    public class TopMoedaItem
+    {
+        public int Rank { get; set; }
+        public string NomeExibido { get; set; }
+        public int Moedas { get; set; }
     }
 
     public class Ambiente

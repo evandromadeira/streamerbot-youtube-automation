@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260824.1500
+// Atualização 260830.1040
 public class CPHInline
 {
     public bool Execute()
@@ -85,8 +85,17 @@ public class CPHInline
             case "!transferir":
                 CPH.ExecuteMethod("Youtube Gerente de Moedas", "TransferirMoedasUsuario");
                 break;
+            case "!topmoedas":
+                CPH.ExecuteMethod("Youtube Gerente de Moedas", "TopMoedas");
+                break;
             case "!importar":
                 CPH.ExecuteMethod("Youtube Importar Moedas SE", "ImportarMoedasStreamElements");
+                break;
+            case "!novopalpite":
+                CPH.ExecuteMethod("Youtube Gerente de Palpite", "NovoPalpite");
+                break;
+            case "!palpite":
+                CPH.ExecuteMethod("Youtube Gerente de Palpite", "Apostar");
                 break;
             case "!meta":
                 CPH.RunAction("Youtube Consultar Meta", false);
