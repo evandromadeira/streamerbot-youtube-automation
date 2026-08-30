@@ -1,7 +1,7 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260822.1615
+// Atualização 260830.0950
 public class CPHInline
 {
     public bool Execute()
@@ -39,23 +39,72 @@ public class CPHInline
 
     private string MontarMensagem(string broadcastUserName, int progressoMensal)
     {
-        string mensagem = $"✨ Meta Mensal {progressoMensal:N0} Pontos";
-
+        // ==========================================
+        // CANAL: MADEIRA (1ª Live 12h + 2ª Live Dinâmica de +1h a cada 5k)
+        // ==========================================
         if (string.Equals(broadcastUserName, "Madeira", StringComparison.OrdinalIgnoreCase))
         {
-            mensagem += " | Live de 12 Horas " + (progressoMensal < 60000 ? "- Faltam " + (60000 - progressoMensal).ToString("N0") + "/60.000 |" : "- 100% |");
+            const int metaPrimeiraLive = 60000;
+            const int metaSegundaLive = 120000;
+
+            // Fase 1: Em busca da 1ª Live
+            if (progressoMensal < metaPrimeiraLive)
+            {
+                int faltam = metaPrimeiraLive - progressoMensal;
+                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🎬 1ª Live 12h: Faltam {faltam:N0}/60.000 |";
+            }
+
+            // Fase 2: Em busca da 2ª Live (12h fechadas)
+            if (progressoMensal < metaSegundaLive)
+            {
+                int faltamSegunda = metaSegundaLive - progressoMensal;
+                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆 1ª Live 12h Garantida! | 🎬 2ª Live 12h: Faltam {faltamSegunda:N0}/60.000 |";
+            }
+
+            // Ambas concluídas
+            return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆🏆 1ª Live 12h + 2ª Live 12h 100% Batidas! 🎉 |";
         }
+
+        // ==========================================
+        // CANAL: CAMPOSRAPHA (1ª Live 12h + 2ª Live 12h Fechada)
+        // ==========================================
         else if (string.Equals(broadcastUserName, "CamposRapha", StringComparison.OrdinalIgnoreCase))
         {
-            mensagem += " | Live de 12 Horas " + (progressoMensal < 60000 ? "- Faltam " + (60000 - progressoMensal).ToString("N0") + "/60.000 |" : "- 100% |");
+            const int metaBase = 60000;
+            const int pontosPorHoraExtra = 5000;
+            const int maxHorasSegundaLive = 12;
 
-            if (progressoMensal >= 60000)
+            // Fase 1: Em busca da 1ª Live de 12h
+            if (progressoMensal < metaBase)
             {
-                mensagem += " Presente Bodas de Algodão " + (progressoMensal < 90000 ? "- Faltam " + (90000 - progressoMensal).ToString("N0") + "/30.000 |" : "- 100% |");
+                int faltamBase = metaBase - progressoMensal;
+                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🎬 Live 12h: Faltam {faltamBase:N0}/{metaBase:N0} |";
             }
+
+            // Fase 2: Calculando progresso dinâmico da 2ª Live
+            int pontosExtras = progressoMensal - metaBase;
+            int horasSegundaLive = Math.Min(pontosExtras / pontosPorHoraExtra, maxHorasSegundaLive);
+
+            // Entre 60.000 e 64.999 pts (buscando a 1ª hora)
+            if (horasSegundaLive == 0)
+            {
+                int faltamPrimeiraHora = pontosPorHoraExtra - (pontosExtras % pontosPorHoraExtra);
+                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆 1ª Live 12h Garantida! | 🚀 2ª Live (1h): Faltam {faltamPrimeiraHora:N0}/{pontosPorHoraExtra:N0} |";
+            }
+
+            // Entre 1h e 11h acumuladas na 2ª Live
+            if (horasSegundaLive < maxHorasSegundaLive)
+            {
+                int progressoHoraAtual = pontosExtras % pontosPorHoraExtra;
+                int faltamProximaHora = pontosPorHoraExtra - progressoHoraAtual;
+                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆 1ª Live 12h + 2ª Live {horasSegundaLive}h Garantidas! | 🚀 2ª Live (+1h): Faltam {faltamProximaHora:N0}/{pontosPorHoraExtra:N0} |";
+            }
+
+            // 120.000+ pts (12h + 12h batidas)
+            return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆🏆 1ª Live 12h + 2ª Live 12h 100% Batidas! 🎉 |";
         }
 
-        return mensagem;
+        return $"✨ Meta Mensal: {progressoMensal:N0} pts |";
     }
 
     public class Contexto
