@@ -27,7 +27,7 @@ public class CPHInline
             int primeiroEspaco = mensagem.IndexOf(' ');
             string resto = primeiroEspaco >= 0 ? mensagem.Substring(primeiroEspaco + 1).Trim() : "";
 
-            var matchTempo = Regex.Match(resto, @"^(\d+)([ms])(\s+|$)", RegexOptions.IgnoreCase);
+            var matchTempo = Regex.Match(resto, @"^(\d+)([msh])(\s+|$)", RegexOptions.IgnoreCase);
             if (!matchTempo.Success)
             {
                 CPH.SendYouTubeMessage($"@{evento.UserName} - sintaxe: !iniciarpalpite [tempo, ex: 3m] [descrição] | [opção1] ; [opção2]");
@@ -36,7 +36,7 @@ public class CPHInline
 
             int valorTempo = int.Parse(matchTempo.Groups[1].Value);
             string unidadeTempo = matchTempo.Groups[2].Value.ToLower();
-            int durationSeconds = unidadeTempo == "m" ? valorTempo * 60 : valorTempo;
+            int durationSeconds = unidadeTempo == "h" ? valorTempo * 3600 : unidadeTempo == "m" ? valorTempo * 60 : valorTempo;
             string restoAposTempo = resto.Substring(matchTempo.Length).Trim();
 
             int posPipe = restoAposTempo.IndexOf('|');
