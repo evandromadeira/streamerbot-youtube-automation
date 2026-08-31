@@ -5,7 +5,8 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260830.1045
+// Atualização 260830.1945
+// Camada de dados da automação da live: Centraliza todo o acesso ao SQLite (YoutubeStream.db)
 public class CPHInline
 {
     private static readonly HashSet<string> TabelasPermitidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -15,6 +16,9 @@ public class CPHInline
         "YoutubeChatLog"
     };
 
+    // ------------------------------------------------------------------
+    // Cria as tabelas (idempotente) e aplica migrações incrementais de coluna
+    // ------------------------------------------------------------------
     public bool GarantirSchema()
     {
         try
@@ -125,6 +129,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Resolve (ou cria) o grupoId de um comando de áudio a partir de uma lista de apelidos
+    // ------------------------------------------------------------------
     public bool ObterOuCriarGrupoIdAudio()
     {
         try
@@ -177,6 +184,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Faz upsert genérico numa tabela permitida, a partir de colunas recebidas em JSON
+    // ------------------------------------------------------------------
     public bool SalvarRegistro()
     {
         try
@@ -239,6 +249,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Busca um comando de áudio ativo pelo nome digitado no chat
+    // ------------------------------------------------------------------
     public bool BuscarAudioPorComando()
     {
         try
@@ -284,6 +297,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Lista um áudio representante de cada grupo ativo, pro comando !audios
+    // ------------------------------------------------------------------
     public bool ListarAudiosPorGrupo()
     {
         try
@@ -324,6 +340,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Atualiza o timestamp de último uso de um grupo de áudio (controle de cooldown)
+    // ------------------------------------------------------------------
     public bool AtualizarUltimoUsoAudio()
     {
         try
@@ -348,6 +367,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Consulta saldo, ranking e último crédito de um usuário, por id ou por nome
+    // ------------------------------------------------------------------
     public bool SaldoMoedasUsuario()
     {
         try
@@ -425,6 +447,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Monta o ranking dos N maiores saldos de moeda, pro comando !topmoedas
+    // ------------------------------------------------------------------
     public bool ConsultarTopMoedas()
     {
         try
@@ -493,6 +518,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Credita moedas a um usuário, com regra de cooldown para atividade de chat
+    // ------------------------------------------------------------------
     public bool AdicionarMoedasUsuario()
     {
         try
@@ -624,6 +652,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Transfere moedas de um usuário para outro, validando saldo do remetente
+    // ------------------------------------------------------------------
     public bool TransferirMoedasUsuario()
     {
         try
@@ -714,6 +745,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Debita moedas de um usuário (usado pela importação de moedas da Twitch)
+    // ------------------------------------------------------------------
     public bool DebitarMoedasUsuario()
     {
         try
@@ -753,6 +787,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Abre uma nova rodada de palpite, bloqueando se já existir uma em aberto
+    // ------------------------------------------------------------------
     public bool CriarPalpite()
     {
         try
@@ -837,6 +874,250 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Declara a opção vencedora do palpite aberto e paga os vencedores pelo pool proporcional
+    // ------------------------------------------------------------------
+    public bool ResolverPalpite()
+    {
+        try
+        {
+            CPH.TryGetArg("resolverPalpiteOpcaoVencedora", out string opcaoVencedora);
+
+            if (string.IsNullOrEmpty(opcaoVencedora))
+            {
+                CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros inválidos para ResolverPalpite.");
+                CPH.SetArgument("resolverPalpiteResultado", "Erro");
+                return true;
+            }
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                using (var beginCmd = new SQLiteCommand("BEGIN IMMEDIATE;", connection))
+                {
+                    beginCmd.ExecuteNonQuery();
+                }
+
+                try
+                {
+                    int predictionId = 0;
+                    string description = null;
+                    string optionsRaw = null;
+                    using (var cmd = new SQLiteCommand("SELECT id, description, options FROM YoutubePalpites WHERE status = 'open' ORDER BY id DESC LIMIT 1", connection))
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            predictionId = Convert.ToInt32(reader["id"]);
+                            description = reader["description"].ToString();
+                            optionsRaw = reader["options"].ToString();
+                        }
+                    }
+
+                    if (predictionId == 0)
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("resolverPalpiteResultado", "SemRodadaAberta");
+                        return true;
+                    }
+
+                    var options = optionsRaw.Split(';');
+                    int indiceOpcao = opcaoVencedora[0] - 'a';
+                    if (indiceOpcao < 0 || indiceOpcao >= options.Length)
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("resolverPalpiteResultado", "OpcaoInvalida");
+                        return true;
+                    }
+
+                    var vencedores = new List<ApostaVencedora>();
+                    int poteTotal = 0;
+                    int poteVencedores = 0;
+
+                    using (var cmd = new SQLiteCommand("SELECT userId, userName, chosenOption, betAmount FROM YoutubePalpiteRespostas WHERE predictionId = @predictionId ORDER BY betAt ASC", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@predictionId", predictionId);
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                string userId = reader["userId"].ToString();
+                                string userName = reader["userName"].ToString();
+                                string chosenOption = reader["chosenOption"].ToString();
+                                int betAmount = Convert.ToInt32(reader["betAmount"]);
+
+                                poteTotal += betAmount;
+                                if (string.Equals(chosenOption, opcaoVencedora, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    vencedores.Add(new ApostaVencedora { UserId = userId, UserName = userName, BetAmount = betAmount });
+                                    poteVencedores += betAmount;
+                                }
+                            }
+                        }
+                    }
+
+                    if (vencedores.Count == 0)
+                    {
+                        DevolverApostas(connection, predictionId);
+
+                        using (var statusCmd = new SQLiteCommand("UPDATE YoutubePalpites SET status = 'cancelled' WHERE id = @id;", connection))
+                        {
+                            statusCmd.Parameters.AddWithValue("@id", predictionId);
+                            statusCmd.ExecuteNonQuery();
+                        }
+
+                        using (var commitCmd = new SQLiteCommand("COMMIT;", connection))
+                        {
+                            commitCmd.ExecuteNonQuery();
+                        }
+
+                        CPH.SetArgument("resolverPalpiteResultado", "SemGanhadores");
+                        return true;
+                    }
+
+                    int potePerdedores = poteTotal - poteVencedores;
+
+                    // Ordena por valor apostado (desc); em empate, mantém a ordem de chegada
+                    // (já vem ASC por betAt da consulta), pra decidir quem recebe a sobra de arredondamento.
+                    var vencedoresOrdenados = vencedores.OrderByDescending(v => v.BetAmount).ToList();
+
+                    var pagamentos = new Dictionary<string, int>();
+                    int totalDistribuido = 0;
+                    foreach (var vencedor in vencedoresOrdenados)
+                    {
+                        int parteProporcional = poteVencedores > 0
+                            ? (int)((long)vencedor.BetAmount * potePerdedores / poteVencedores)
+                            : 0;
+                        int pago = vencedor.BetAmount + parteProporcional;
+                        pagamentos[vencedor.UserId] = pago;
+                        totalDistribuido += parteProporcional;
+                    }
+
+                    int sobra = potePerdedores - totalDistribuido;
+                    if (sobra > 0)
+                    {
+                        string idMaiorApostador = vencedoresOrdenados.First().UserId;
+                        pagamentos[idMaiorApostador] += sobra;
+                    }
+
+                    int totalPago = 0;
+                    foreach (var vencedor in vencedores)
+                    {
+                        int valorPago = pagamentos[vencedor.UserId];
+                        totalPago += valorPago;
+
+                        using (var creditoCmd = new SQLiteCommand("UPDATE YoutubeUsuariosMoeda SET coinBalance = coinBalance + @valor WHERE userId = @userId;", connection))
+                        {
+                            creditoCmd.Parameters.AddWithValue("@valor", valorPago);
+                            creditoCmd.Parameters.AddWithValue("@userId", vencedor.UserId);
+                            creditoCmd.ExecuteNonQuery();
+                        }
+                    }
+
+                    using (var statusCmd = new SQLiteCommand("UPDATE YoutubePalpites SET status = 'resolved' WHERE id = @id;", connection))
+                    {
+                        statusCmd.Parameters.AddWithValue("@id", predictionId);
+                        statusCmd.ExecuteNonQuery();
+                    }
+
+                    using (var commitCmd = new SQLiteCommand("COMMIT;", connection))
+                    {
+                        commitCmd.ExecuteNonQuery();
+                    }
+
+                    CPH.SetArgument("resolverPalpiteResultado", "Sucesso");
+                    CPH.SetArgument("resolverPalpiteDescription", description);
+                    CPH.SetArgument("resolverPalpiteTotalPago", totalPago);
+                    CPH.SetArgument("resolverPalpiteQtdVencedores", vencedores.Count);
+                }
+                catch
+                {
+                    RollbackTransacao(connection);
+                    throw;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao resolver palpite: " + ex.Message);
+            CPH.SetArgument("resolverPalpiteResultado", "Erro");
+            return false;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Cancela o palpite aberto e devolve o valor apostado a todos os participantes
+    // ------------------------------------------------------------------
+    public bool CancelarPalpite()
+    {
+        try
+        {
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                using (var beginCmd = new SQLiteCommand("BEGIN IMMEDIATE;", connection))
+                {
+                    beginCmd.ExecuteNonQuery();
+                }
+
+                try
+                {
+                    int predictionId = 0;
+                    using (var cmd = new SQLiteCommand("SELECT id FROM YoutubePalpites WHERE status = 'open' ORDER BY id DESC LIMIT 1", connection))
+                    {
+                        var resultado = cmd.ExecuteScalar();
+                        if (resultado != null && resultado != DBNull.Value)
+                            predictionId = Convert.ToInt32(resultado);
+                    }
+
+                    if (predictionId == 0)
+                    {
+                        RollbackTransacao(connection);
+                        CPH.SetArgument("cancelarPalpiteResultado", "SemRodadaAberta");
+                        return true;
+                    }
+
+                    DevolverApostas(connection, predictionId);
+
+                    using (var statusCmd = new SQLiteCommand("UPDATE YoutubePalpites SET status = 'cancelled' WHERE id = @id;", connection))
+                    {
+                        statusCmd.Parameters.AddWithValue("@id", predictionId);
+                        statusCmd.ExecuteNonQuery();
+                    }
+
+                    using (var commitCmd = new SQLiteCommand("COMMIT;", connection))
+                    {
+                        commitCmd.ExecuteNonQuery();
+                    }
+
+                    CPH.SetArgument("cancelarPalpiteResultado", "Sucesso");
+                }
+                catch
+                {
+                    RollbackTransacao(connection);
+                    throw;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao cancelar palpite: " + ex.Message);
+            CPH.SetArgument("cancelarPalpiteResultado", "Erro");
+            return false;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Registra (ou soma) a aposta de um usuário na rodada de palpite aberta
+    // ------------------------------------------------------------------
     public bool ApostarPalpite()
     {
         try
@@ -1003,6 +1284,57 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Verifica se algum palpite aberto acabou de passar do prazo, pra avisar no chat
+    // ------------------------------------------------------------------
+    public bool VerificarEncerramentoPalpite()
+    {
+        try
+        {
+            CPH.TryGetArg("verificarEncerramentoIntervaloSegundos", out int intervaloSegundos);
+            if (intervaloSegundos <= 0) intervaloSegundos = 3;
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                string agora = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                string janelaInicio = DateTime.Now.AddSeconds(-intervaloSegundos).ToString("yyyy-MM-dd HH:mm:ss");
+
+                using (var cmd = new SQLiteCommand(@"SELECT description FROM YoutubePalpites
+                                                      WHERE status = 'open' AND endsAt <= @agora AND endsAt > @janelaInicio
+                                                      LIMIT 1", connection))
+                {
+                    cmd.Parameters.AddWithValue("@agora", agora);
+                    cmd.Parameters.AddWithValue("@janelaInicio", janelaInicio);
+                    var resultado = cmd.ExecuteScalar();
+
+                    if (resultado != null && resultado != DBNull.Value)
+                    {
+                        CPH.SetArgument("palpiteEncerradoEncontrado", true);
+                        CPH.SetArgument("palpiteEncerradoDescription", resultado.ToString());
+                    }
+                    else
+                    {
+                        CPH.SetArgument("palpiteEncerradoEncontrado", false);
+                    }
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao verificar encerramento de palpite: " + ex.Message);
+            CPH.SetArgument("palpiteEncerradoEncontrado", false);
+            return false;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Salva uma mensagem de chat recebida na tabela de log
+    // ------------------------------------------------------------------
     public bool SalvarChatLog()
     {
         try
@@ -1073,6 +1405,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Consulta o progresso atual da meta de doações/pontos
+    // ------------------------------------------------------------------
     public bool ObterProgressoMeta()
     {
         try
@@ -1117,6 +1452,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Verifica se uma doação já foi registrada antes, pra evitar duplicidade
+    // ------------------------------------------------------------------
     public bool VerificarDoacaoDuplicada()
     {
         try
@@ -1170,6 +1508,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Registra uma doação (Super Chat, Membership, Tip, etc.) na tabela de doações
+    // ------------------------------------------------------------------
     public bool SalvarDoacao()
     {
         try
@@ -1227,6 +1568,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Executa um comando SQL simples sem retorno, dentro da conexão informada
+    // ------------------------------------------------------------------
     private void Executar(SQLiteConnection connection, string sql)
     {
         using (var cmd = new SQLiteCommand(sql, connection))
@@ -1235,6 +1579,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Abre e configura (WAL, timeout) a conexão com o banco SQLite
+    // ------------------------------------------------------------------
     private SQLiteConnection AbrirConexao(Ambiente ambiente)
     {
         var connection = new SQLiteConnection($"Data Source={ambiente.CaminhoBanco};Version=3;");
@@ -1247,6 +1594,9 @@ public class CPHInline
         return connection;
     }
 
+    // ------------------------------------------------------------------
+    // Adiciona uma coluna a uma tabela existente, só se ela ainda não existir
+    // ------------------------------------------------------------------
     private void AdicionarColunaSeNaoExistir(SQLiteConnection connection, string tabela, string coluna, string tipoDefinicao)
     {
         bool colunaExiste = false;
@@ -1272,6 +1622,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Desfaz a transação SQL em andamento
+    // ------------------------------------------------------------------
     private void RollbackTransacao(SQLiteConnection connection)
     {
         using (var cmd = new SQLiteCommand("ROLLBACK;", connection))
@@ -1280,6 +1633,36 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Devolve o valor apostado a todos os participantes de uma rodada de palpite
+    // ------------------------------------------------------------------
+    private void DevolverApostas(SQLiteConnection connection, int predictionId)
+    {
+        var reembolsos = new Dictionary<string, int>();
+        using (var cmd = new SQLiteCommand("SELECT userId, betAmount FROM YoutubePalpiteRespostas WHERE predictionId = @predictionId", connection))
+        {
+            cmd.Parameters.AddWithValue("@predictionId", predictionId);
+            using (var reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                    reembolsos[reader["userId"].ToString()] = Convert.ToInt32(reader["betAmount"]);
+            }
+        }
+
+        foreach (var reembolso in reembolsos)
+        {
+            using (var creditoCmd = new SQLiteCommand("UPDATE YoutubeUsuariosMoeda SET coinBalance = coinBalance + @valor WHERE userId = @userId;", connection))
+            {
+                creditoCmd.Parameters.AddWithValue("@valor", reembolso.Value);
+                creditoCmd.Parameters.AddWithValue("@userId", reembolso.Key);
+                creditoCmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Retorna o saldo atual de moedas de um usuário
+    // ------------------------------------------------------------------
     private int ObterSaldoUsuario(SQLiteConnection connection, string userId)
     {
         using (var cmd = new SQLiteCommand("SELECT coinBalance FROM YoutubeUsuariosMoeda WHERE userId = @userId", connection))
@@ -1290,6 +1673,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Busca o userId de um usuário a partir do nome exibido
+    // ------------------------------------------------------------------
     private string BuscarUserIdPorNome(SQLiteConnection connection, string userName)
     {
         using (var cmd = new SQLiteCommand("SELECT userId FROM YoutubeUsuariosMoeda WHERE userName = @userName COLLATE NOCASE ORDER BY CASE WHEN userId LIKE 'UC%' THEN 0 ELSE 1 END LIMIT 1", connection))
@@ -1300,6 +1686,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Verifica se um userId já existe na tabela de moedas
+    // ------------------------------------------------------------------
     private bool UserIdExiste(SQLiteConnection connection, string userId)
     {
         using (var cmd = new SQLiteCommand("SELECT 1 FROM YoutubeUsuariosMoeda WHERE userId = @userId LIMIT 1", connection))
@@ -1309,6 +1698,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Busca a data do último crédito por atividade de chat de um usuário
+    // ------------------------------------------------------------------
     private DateTime? BuscarUltimoCreditoAtividade(SQLiteConnection connection, string userId)
     {
         using (var cmd = new SQLiteCommand("SELECT lastCoinAt FROM YoutubeUsuariosMoeda WHERE userId = @userId", connection))
@@ -1320,6 +1712,9 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Busca o nome exibido de um usuário a partir do userId
+    // ------------------------------------------------------------------
     private string BuscarUserNamePorId(SQLiteConnection connection, string userId)
     {
         using (var cmd = new SQLiteCommand("SELECT userName FROM YoutubeUsuariosMoeda WHERE userId = @userId", connection))
@@ -1330,6 +1725,19 @@ public class CPHInline
         }
     }
 
+    // ------------------------------------------------------------------
+    // Guarda um apostador vencedor enquanto o pagamento proporcional é calculado
+    // ------------------------------------------------------------------
+    private class ApostaVencedora
+    {
+        public string UserId { get; set; }
+        public string UserName { get; set; }
+        public int BetAmount { get; set; }
+    }
+
+    // ------------------------------------------------------------------
+    // Representa um grupo de áudio resumido pra listagem do comando !audios
+    // ------------------------------------------------------------------
     public class AudioResumo
     {
         public int GrupoId { get; set; }
@@ -1337,6 +1745,9 @@ public class CPHInline
         public int Custo { get; set; }
     }
 
+    // ------------------------------------------------------------------
+    // Representa uma posição no ranking do comando !topmoedas
+    // ------------------------------------------------------------------
     public class TopMoedaItem
     {
         public int Rank { get; set; }
@@ -1344,6 +1755,9 @@ public class CPHInline
         public int Moedas { get; set; }
     }
 
+    // ------------------------------------------------------------------
+    // Resolve os caminhos de arquivo usados pelo script a partir da pasta raiz do Streamer.bot
+    // ------------------------------------------------------------------
     public class Ambiente
     {
         public string PastaRaiz { get; set; }
