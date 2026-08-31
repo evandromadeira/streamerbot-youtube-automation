@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260830.1945
+// Atualização 260831.1910
 // Camada de dados da automação da live: Centraliza todo o acesso ao SQLite (YoutubeStream.db)
 public class CPHInline
 {
@@ -1302,24 +1302,48 @@ public class CPHInline
                 string agora = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                 string janelaInicio = DateTime.Now.AddSeconds(-intervaloSegundos).ToString("yyyy-MM-dd HH:mm:ss");
 
-                using (var cmd = new SQLiteCommand(@"SELECT description FROM YoutubePalpites
+                int predictionId = 0;
+                string description = null;
+                string optionsRaw = null;
+
+                using (var cmd = new SQLiteCommand(@"SELECT id, description, options FROM YoutubePalpites
                                                       WHERE status = 'open' AND endsAt <= @agora AND endsAt > @janelaInicio
                                                       LIMIT 1", connection))
                 {
                     cmd.Parameters.AddWithValue("@agora", agora);
                     cmd.Parameters.AddWithValue("@janelaInicio", janelaInicio);
-                    var resultado = cmd.ExecuteScalar();
-
-                    if (resultado != null && resultado != DBNull.Value)
+                    using (var reader = cmd.ExecuteReader())
                     {
-                        CPH.SetArgument("palpiteEncerradoEncontrado", true);
-                        CPH.SetArgument("palpiteEncerradoDescription", resultado.ToString());
-                    }
-                    else
-                    {
-                        CPH.SetArgument("palpiteEncerradoEncontrado", false);
+                        if (reader.Read())
+                        {
+                            predictionId = Convert.ToInt32(reader["id"]);
+                            description = reader["description"].ToString();
+                            optionsRaw = reader["options"].ToString();
+                        }
                     }
                 }
+
+                if (predictionId == 0)
+                {
+                    CPH.SetArgument("palpiteEncerradoEncontrado", false);
+                    return true;
+                }
+
+                var totaisPorOpcao = new Dictionary<string, int>();
+                using (var cmd = new SQLiteCommand("SELECT chosenOption, SUM(betAmount) as total FROM YoutubePalpiteRespostas WHERE predictionId = @predictionId GROUP BY chosenOption", connection))
+                {
+                    cmd.Parameters.AddWithValue("@predictionId", predictionId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                            totaisPorOpcao[reader["chosenOption"].ToString()] = Convert.ToInt32(reader["total"]);
+                    }
+                }
+
+                CPH.SetArgument("palpiteEncerradoEncontrado", true);
+                CPH.SetArgument("palpiteEncerradoDescription", description);
+                CPH.SetArgument("palpiteEncerradoOptions", optionsRaw);
+                CPH.SetArgument("palpiteEncerradoTotaisJson", JsonConvert.SerializeObject(totaisPorOpcao));
             }
 
             return true;

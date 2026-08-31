@@ -1,9 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
-// Atualização 260830.1900
+// Atualização 260831.1850
 public class CPHInline
 {
     public bool IniciarPalpite()
@@ -138,7 +139,7 @@ public class CPHInline
                     CPH.TryGetArg("resolverPalpiteDescription", out string description);
                     CPH.TryGetArg("resolverPalpiteTotalPago", out int totalPago);
                     CPH.TryGetArg("resolverPalpiteQtdVencedores", out int qtdVencedores);
-                    CPH.SendYouTubeMessage($"🏆 Palpite \"{description}\" encerrado! Opção vencedora: {opcaoVencedora}) — {qtdVencedores} vencedor(es) dividiram {totalPago} moeda(s)!");
+                    CPH.SendYouTubeMessage($"🏆 Palpite \"{description}\" encerrado! Opção vencedora: {opcaoVencedora}) — {qtdVencedores} vencedor(es) dividiram {totalPago:N0} moeda(s)!");
                     break;
                 case "SemGanhadores":
                     CPH.SendYouTubeMessage("😬 Ninguém apostou na opção vencedora — palpite cancelado, moedas devolvidas a todos.");
@@ -253,7 +254,7 @@ public class CPHInline
             {
                 case "Sucesso":
                     CPH.TryGetArg("apostarPalpiteTotalUsuario", out int totalUsuario);
-                    CPH.SendYouTubeMessage($"@{evento.UserName} apostou {valor} moeda(s) na opção '{opcao}' (total apostado por você nessa opção: {totalUsuario}).");
+                    CPH.SendYouTubeMessage($"@{evento.UserName} apostou {valor:N0} moeda(s) na opção '{opcao}' (Total: {totalUsuario:N0}).");
                     break;
                 case "SemRodadaAberta":
                     CPH.SendYouTubeMessage($"@{evento.UserName} - não há nenhum palpite aberto no momento.");
@@ -266,7 +267,7 @@ public class CPHInline
                     break;
                 case "SaldoInsuficiente":
                     CPH.TryGetArg("apostarPalpiteSaldoAtual", out int saldoAtual);
-                    CPH.SendYouTubeMessage($"@{evento.UserName} - saldo insuficiente (você tem {saldoAtual} moeda(s)).");
+                    CPH.SendYouTubeMessage($"@{evento.UserName} - saldo insuficiente (você tem {saldoAtual:N0} moeda(s)).");
                     break;
                 case "OpcaoDiferente":
                     CPH.TryGetArg("apostarPalpiteOpcaoAtual", out string opcaoAtual);
@@ -297,7 +298,22 @@ public class CPHInline
             if (encontrado)
             {
                 CPH.TryGetArg("palpiteEncerradoDescription", out string description);
-                CPH.SendYouTubeMessage($"⏰ Tempo esgotado! Palpite \"{description}\" encerrado, aguardando !resultadopalpite [letra] ou !cancelarpalpite do mod.");
+                CPH.TryGetArg("palpiteEncerradoOptions", out string optionsRaw);
+                CPH.TryGetArg("palpiteEncerradoTotaisJson", out string totaisJson);
+
+                var options = (optionsRaw ?? "").Split(';');
+                var totais = JsonConvert.DeserializeObject<Dictionary<string, int>>(totaisJson ?? "{}") ?? new Dictionary<string, int>();
+                int poteTotal = totais.Values.Sum();
+
+                string resumo = string.Join(" | ", options.Select((opcao, indice) =>
+                {
+                    string letra = ((char)('a' + indice)).ToString();
+                    int total = totais.ContainsKey(letra) ? totais[letra] : 0;
+                    string multiplicador = total > 0 ? $" ({(double)poteTotal / total:0.00}x)" : " (sem apostas)";
+                    return $"{letra}) {opcao}: {total:N0}{multiplicador}";
+                }));
+
+                CPH.SendYouTubeMessage($"⏰ Tempo esgotado! Palpite \"{description}\" encerrado! {resumo}");
             }
 
             return true;
