@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260831.1910
+// Atualização 260901.1125
 // Camada de dados da automação da live: Centraliza todo o acesso ao SQLite (YoutubeStream.db)
 public class CPHInline
 {
@@ -353,7 +353,7 @@ public class CPHInline
             using (var connection = AbrirConexao(ambiente))
             using (var cmd = new SQLiteCommand("UPDATE YoutubeComandosAudio SET ultimoUso = @agora WHERE grupoId = @grupoId;", connection))
             {
-                cmd.Parameters.AddWithValue("@agora", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+                cmd.Parameters.AddWithValue("@agora", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 cmd.Parameters.AddWithValue("@grupoId", grupoId);
                 cmd.ExecuteNonQuery();
             }
@@ -589,7 +589,7 @@ public class CPHInline
                     if (ehAtividadeChat)
                     {
                         DateTime? ultimoCredito = BuscarUltimoCreditoAtividade(connection, destinatarioId);
-                        if (cooldownMinutos > 0 && ultimoCredito.HasValue && (DateTime.UtcNow - ultimoCredito.Value).TotalMinutes < cooldownMinutos)
+                        if (cooldownMinutos > 0 && ultimoCredito.HasValue && (DateTime.Now - ultimoCredito.Value).TotalMinutes < cooldownMinutos)
                         {
                             RollbackTransacao(connection);
                             CPH.SetArgument("adicionarResultado", "EmCooldown");
@@ -621,7 +621,10 @@ public class CPHInline
                         cmd.Parameters.AddWithValue("@userId", destinatarioId);
                         cmd.Parameters.AddWithValue("@userName", userName);
                         cmd.Parameters.AddWithValue("@quantidadeMoedas", quantidadeMoedas);
-                        if (ehAtividadeChat) cmd.Parameters.AddWithValue("@agora", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                        if (ehAtividadeChat)
+                            cmd.Parameters.AddWithValue("@agora", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
                         cmd.Parameters.AddWithValue("@broadcastUserId", string.IsNullOrEmpty(broadcastUserId) ? (object)DBNull.Value : broadcastUserId);
                         cmd.Parameters.AddWithValue("@broadcastUserName", (object)broadcastUserName ?? DBNull.Value);
                         cmd.ExecuteNonQuery();
@@ -1456,7 +1459,9 @@ public class CPHInline
             using (var connection = AbrirConexao(ambiente))
             {
                 string selectSql = @"SELECT COALESCE(SUM(pontosMeta), 0) FROM YoutubeDoacoes
-                                    WHERE broadcastUserName = @broadcastUserName COLLATE NOCASE AND timestamp >= date('now', 'start of month');";
+                                      WHERE broadcastUserName = @broadcastUserName
+                                    COLLATE NOCASE
+                                        AND timestamp >= date('now', 'localtime', 'start of month');";
                 using (var cmd = new SQLiteCommand(selectSql, connection))
                 {
                     cmd.Parameters.AddWithValue("@broadcastUserName", broadcastUserName);

@@ -5,7 +5,7 @@ using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260820.2120
+// Atualização 260901.1200
 public class CPHInline
 {
     public bool Execute()
@@ -261,7 +261,7 @@ public class CPHInline
                 DateTime ultimoUso;
                 if (DateTime.TryParse(ultimoUsoStr, null, System.Globalization.DateTimeStyles.RoundtripKind, out ultimoUso))
                 {
-                    double segundosDesdeUltimoUso = (DateTime.UtcNow - ultimoUso).TotalSeconds;
+                    double segundosDesdeUltimoUso = (DateTime.Now - ultimoUso).TotalSeconds;
                     if (segundosDesdeUltimoUso < cooldownSegundos)
                     {
                         int restante = (int)Math.Ceiling(cooldownSegundos - segundosDesdeUltimoUso);
