@@ -4,19 +4,20 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
-// Atualização 260831.1850
+// Atualização 260903.1615
 public class CPHInline
 {
     public bool IniciarPalpite()
     {
         try
         {
-            var evento = ObterEvento();
-            if (evento == null)
+            var contexto = ObterContexto();
+            if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE DE PALPITE] ERRO: não foi possível ler o contexto do evento.");
+                CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
+            var evento = contexto.Evento;
 
             if (!evento.IsMod)
             {
@@ -87,7 +88,7 @@ public class CPHInline
                     CPH.SendYouTubeMessage($"@{evento.UserName} - já existe um palpite em andamento. Aguarde ele encerrar.");
                     break;
                 default:
-                    CPH.LogError(">>> [GERENTE DE PALPITE] ERRO: falha ao criar palpite no banco de dados.");
+                    CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: falha ao criar palpite no banco de dados.");
                     CPH.SendYouTubeMessage($"@{evento.UserName} - erro ao criar o palpite, tenta de novo.");
                     break;
             }
@@ -96,7 +97,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [GERENTE DE PALPITE] ERRO CRÍTICO em IniciarPalpite: {ex.Message}");
+            CPH.LogError($">>> [GERENTE_DE_PALPITE] ERRO CRÍTICO em IniciarPalpite: {ex.Message}");
             return false;
         }
     }
@@ -105,12 +106,13 @@ public class CPHInline
     {
         try
         {
-            var evento = ObterEvento();
-            if (evento == null)
+            var contexto = ObterContexto();
+            if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE DE PALPITE] ERRO: não foi possível ler o contexto do evento.");
+                CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
+            var evento = contexto.Evento;
 
             if (!evento.IsMod)
             {
@@ -151,7 +153,7 @@ public class CPHInline
                     CPH.SendYouTubeMessage($"@{evento.UserName} - opção '{opcaoVencedora}' não existe nesse palpite.");
                     break;
                 default:
-                    CPH.LogError(">>> [GERENTE DE PALPITE] ERRO: falha ao resolver palpite.");
+                    CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: falha ao resolver palpite.");
                     CPH.SendYouTubeMessage($"@{evento.UserName} - erro ao declarar o resultado, tenta de novo.");
                     break;
             }
@@ -160,7 +162,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [GERENTE DE PALPITE] ERRO CRÍTICO em ResolverPalpite: {ex.Message}");
+            CPH.LogError($">>> [GERENTE_DE_PALPITE] ERRO CRÍTICO em ResolverPalpite: {ex.Message}");
             return false;
         }
     }
@@ -169,12 +171,13 @@ public class CPHInline
     {
         try
         {
-            var evento = ObterEvento();
-            if (evento == null)
+            var contexto = ObterContexto();
+            if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE DE PALPITE] ERRO: não foi possível ler o contexto do evento.");
+                CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
+            var evento = contexto.Evento;
 
             if (!evento.IsMod)
             {
@@ -194,7 +197,7 @@ public class CPHInline
                     CPH.SendYouTubeMessage($"@{evento.UserName} - não há nenhum palpite aberto no momento.");
                     break;
                 default:
-                    CPH.LogError(">>> [GERENTE DE PALPITE] ERRO: falha ao cancelar palpite.");
+                    CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: falha ao cancelar palpite.");
                     CPH.SendYouTubeMessage($"@{evento.UserName} - erro ao cancelar o palpite, tenta de novo.");
                     break;
             }
@@ -203,7 +206,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [GERENTE DE PALPITE] ERRO CRÍTICO em Cancelar: {ex.Message}");
+            CPH.LogError($">>> [GERENTE_DE_PALPITE] ERRO CRÍTICO em Cancelar: {ex.Message}");
             return false;
         }
     }
@@ -212,12 +215,13 @@ public class CPHInline
     {
         try
         {
-            var evento = ObterEvento();
-            if (evento == null)
+            var contexto = ObterContexto();
+            if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE DE PALPITE] ERRO: não foi possível ler o contexto do evento.");
+                CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
+            var evento = contexto.Evento;
 
             string mensagem = evento.MessageText ?? "";
             var partes = mensagem.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -254,7 +258,7 @@ public class CPHInline
             {
                 case "Sucesso":
                     CPH.TryGetArg("apostarPalpiteTotalUsuario", out int totalUsuario);
-                    CPH.SendYouTubeMessage($"@{evento.UserName} apostou {valor:N0} moeda(s) na opção '{opcao}' (Total: {totalUsuario:N0}).");
+                    CPH.SendYouTubeMessage($"@{evento.UserName} apostou {valor:N0} Moedas na opção '{opcao}'. (Total: {totalUsuario:N0})");
                     break;
                 case "SemRodadaAberta":
                     CPH.SendYouTubeMessage($"@{evento.UserName} - não há nenhum palpite aberto no momento.");
@@ -274,7 +278,7 @@ public class CPHInline
                     CPH.SendYouTubeMessage($"@{evento.UserName} - você já apostou na opção '{opcaoAtual}' nessa rodada, não dá pra trocar.");
                     break;
                 default:
-                    CPH.LogError(">>> [GERENTE DE PALPITE] ERRO: falha ao registrar aposta.");
+                    CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: falha ao registrar aposta.");
                     CPH.SendYouTubeMessage($"@{evento.UserName} - erro ao registrar sua aposta, tenta de novo.");
                     break;
             }
@@ -283,7 +287,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [GERENTE DE PALPITE] ERRO CRÍTICO em ApostarPalpite: {ex.Message}");
+            CPH.LogError($">>> [GERENTE_DE_PALPITE] ERRO CRÍTICO em ApostarPalpite: {ex.Message}");
             return false;
         }
     }
@@ -320,7 +324,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [GERENTE DE PALPITE] ERRO CRÍTICO em VerificarEncerramentoPalpite: {ex.Message}");
+            CPH.LogError($">>> [GERENTE_DE_PALPITE] ERRO CRÍTICO em VerificarEncerramentoPalpite: {ex.Message}");
             return false;
         }
     }
@@ -332,20 +336,18 @@ public class CPHInline
         return $"{segundos} segundo(s)";
     }
 
-    private Evento ObterEvento()
+    public class Contexto
+    {
+        public Evento Evento { get; set; }
+    }
+
+    private Contexto ObterContexto()
     {
         CPH.TryGetArg("contextoJson", out string contextoJson);
         if (string.IsNullOrEmpty(contextoJson))
             return null;
 
-        var contexto = JsonConvert.DeserializeObject<Contexto>(contextoJson);
-        return contexto?.Evento;
-    }
-
-    public class Contexto
-    {
-        public Evento Evento { get; set; }
-        public Ambiente Ambiente { get; set; }
+        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
     }
 
     public class Evento
@@ -361,15 +363,5 @@ public class CPHInline
         public string PublishedAt { get; set; }
         public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
-    }
-
-    public class Ambiente
-    {
-        public string PastaRaiz { get; set; }
-        public string PastaStream { get; set; }
-        public string PastaAudios { get; set; }
-        public string PastaSE { get; set; }
-        public string CaminhoConfigSE { get; set; }
-        public string CaminhoBanco { get; set; }
     }
 }

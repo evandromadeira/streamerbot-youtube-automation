@@ -1,19 +1,17 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260830.0950
+// Atualização 260903.1605
 public class CPHInline
 {
     public bool Execute()
     {
         try
         {
-            CPH.TryGetArg("contextoJson", out string contextoJson);
-            var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
-
+            var contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [META] ERRO: contexto ausente ou inválido.");
+                CPH.LogError(">>> [META] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
 
@@ -110,6 +108,15 @@ public class CPHInline
     public class Contexto
     {
         public Evento Evento { get; set; }
+    }
+
+    private Contexto ObterContexto()
+    {
+        CPH.TryGetArg("contextoJson", out string contextoJson);
+        if (string.IsNullOrEmpty(contextoJson))
+            return null;
+
+        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
     }
 
     public class Evento

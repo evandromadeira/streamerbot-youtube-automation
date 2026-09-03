@@ -5,30 +5,19 @@ using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260901.1200
+// Atualização 260903.1630
 public class CPHInline
 {
-    public bool Execute()
-    {
-        return true;
-    }
-
-    // ------------------------------------------------------------------
-    // Cadastro de áudio (!novoaudio)
-    // ------------------------------------------------------------------
     public bool CadastrarAudio()
     {
         try
         {
-            CPH.TryGetArg("contextoJson", out string contextoJson);
-            var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
-
+            var contexto = ObterContexto();
             if (contexto?.Evento == null || contexto.Ambiente == null)
             {
-                CPH.LogError(">>> [AUDIO] ERRO: contexto ausente ou inválido.");
+                CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-
             var evento = contexto.Evento;
             var ambiente = contexto.Ambiente;
 
@@ -139,15 +128,12 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [AUDIO] ERRO CRÍTICO ao cadastrar áudio: " + ex.Message);
+            CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO CRÍTICO ao cadastrar áudio: " + ex.Message);
             CPH.SendYouTubeMessage("❌ Falha técnica ao cadastrar áudio.");
             return false;
         }
     }
 
-    // ------------------------------------------------------------------
-    // Listagem de áudios cadastrados (!audios)
-    // ------------------------------------------------------------------
     public bool ListarAudios()
     {
         try
@@ -176,14 +162,12 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [AUDIO] ERRO CRÍTICO ao listar áudios: " + ex.Message);
+            CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO CRÍTICO ao listar áudios: " + ex.Message);
             CPH.SendYouTubeMessage("❌ Falha técnica ao listar áudios.");
             return false;
         }
     }
 
-    // Monta uma ou mais mensagens de até 200 caracteres (limite do YouTube), sem nunca
-    // cortar um "!comando(custo)" no meio — cada item só entra inteiro em uma mensagem.
     private List<string> MontarMensagensDeAudios(List<AudioResumo> audios)
     {
         const int limiteCaracteres = 200;
@@ -219,21 +203,16 @@ public class CPHInline
         return mensagens;
     }
 
-    // ------------------------------------------------------------------
-    // Reprodução de áudio (comandos avulsos, ex: !agua)
-    // ------------------------------------------------------------------
     public bool ReproduzirAudio()
     {
         try
         {
-            CPH.TryGetArg("contextoJson", out string contextoJson);
-            var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
+            var contexto = ObterContexto();
             if (contexto?.Evento == null || contexto.Ambiente == null)
             {
-                CPH.LogError(">>> [AUDIO] ERRO: contexto ausente ou inválido.");
+                CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-
             var evento = contexto.Evento;
             var ambiente = contexto.Ambiente;
 
@@ -274,7 +253,7 @@ public class CPHInline
             string caminhoArquivo = Path.Combine(ambiente.PastaAudios, arquivo);
             if (!File.Exists(caminhoArquivo))
             {
-                CPH.LogError($">>> [AUDIO] ERRO: arquivo '{arquivo}' não encontrado na pasta de áudios.");
+                CPH.LogError($">>> [GERENTE_DE_AUDIO] ERRO: arquivo '{arquivo}' não encontrado na pasta de áudios.");
                 CPH.SendYouTubeMessage($"❌ @{evento.UserName}, áudio indisponível no momento.");
                 return true;
             }
@@ -300,7 +279,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [AUDIO] ERRO CRÍTICO ao reproduzir áudio: " + ex.Message);
+            CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO CRÍTICO ao reproduzir áudio: " + ex.Message);
             return false;
         }
     }
@@ -316,6 +295,15 @@ public class CPHInline
     {
         public Evento Evento { get; set; }
         public Ambiente Ambiente { get; set; }
+    }
+
+    private Contexto ObterContexto()
+    {
+        CPH.TryGetArg("contextoJson", out string contextoJson);
+        if (string.IsNullOrEmpty(contextoJson))
+            return null;
+
+        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
     }
 
     public class Evento

@@ -2,23 +2,21 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260830.1045
+// Atualização 260903.1600
 public class CPHInline
 {
     public bool SaldoMoedasUsuario()
     {
         try
         {
-            CPH.TryGetArg("contextoJson", out string contextoJson);
-
-            var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
+            var contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: contexto ausente ou inválido.");
+                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-
             var evento = contexto.Evento;
+
             string[] partesComando = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
             string mensagem = partesComando.Length > 1 ? partesComando[1].Replace("@", "").Trim() : "";
             bool consultaPropria = string.IsNullOrEmpty(mensagem);
@@ -68,16 +66,14 @@ public class CPHInline
     {
         try
         {
-            CPH.TryGetArg("contextoJson", out string contextoJson);
-
-            var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
+            var contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: contexto ausente ou inválido.");
+                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-
             var evento = contexto.Evento;
+
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
             int limiteMaximo = evento.IsMod ? 100 : 10;
@@ -201,16 +197,14 @@ public class CPHInline
             }
             else if (origem == "chat_adicionar")
             {
-                CPH.TryGetArg("contextoJson", out string contextoJson);
-
-                var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
+                var contexto = ObterContexto();
                 if (contexto?.Evento == null)
                 {
-                    CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: contexto ausente ou inválido.");
+                    CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
                     return false;
                 }
-
                 var evento = contexto.Evento;
+
                 senderUserName = evento.UserName;
 
                 if (!evento.IsMod)
@@ -296,15 +290,12 @@ public class CPHInline
     {
         try
         {
-            CPH.TryGetArg("contextoJson", out string contextoJson);
-
-            var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
+            var contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: contexto ausente ou inválido.");
+                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-
             var evento = contexto.Evento;
 
             int moedasPorMensagem = 10;
@@ -343,16 +334,14 @@ public class CPHInline
     {
         try
         {
-            CPH.TryGetArg("contextoJson", out string contextoJson);
-
-            var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
+            var contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: contexto ausente ou inválido.");
+                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-
             var evento = contexto.Evento;
+
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (partes.Length != 3)
             {
@@ -422,6 +411,15 @@ public class CPHInline
     public class Contexto
     {
         public Evento Evento { get; set; }
+    }
+
+    private Contexto ObterContexto()
+    {
+        CPH.TryGetArg("contextoJson", out string contextoJson);
+        if (string.IsNullOrEmpty(contextoJson))
+            return null;
+
+        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
     }
 
     public class Evento

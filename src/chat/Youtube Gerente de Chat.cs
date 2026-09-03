@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260830.1910
+// Atualização 260903.1700
 public class CPHInline
 {
     public bool Execute()
@@ -38,20 +38,20 @@ public class CPHInline
             bool salvou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SalvarChatLog");
             if (!salvou)
             {
-                CPH.LogError(">>> [GERENTE DE CHAT] ERRO: falha ao salvar mensagem no banco de dados.");
+                CPH.LogError(">>> [GERENTE_DE_CHAT] ERRO: falha ao salvar mensagem no banco de dados.");
                 return false;
             }
 
-            CPH.LogDebug(">>> [GERENTE DE CHAT] DADO SALVO COM SUCESSO!");
+            CPH.LogDebug(">>> [GERENTE_DE_CHAT] DADO SALVO COM SUCESSO!");
 
             bool creditou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "RecompensarAtividadeChat");
             if (!creditou)
             {
-                CPH.LogError(">>> [GERENTE DE CHAT] ERRO: falha ao creditar moedas para o usuário.");
+                CPH.LogError(">>> [GERENTE_DE_CHAT] ERRO: falha ao creditar moedas para o usuário.");
             }
             else
             {
-                CPH.LogDebug(">>> [GERENTE DE CHAT] MOEDAS CREDITADAS COM SUCESSO!");
+                CPH.LogDebug(">>> [GERENTE_DE_CHAT] MOEDAS CREDITADAS COM SUCESSO!");
             }
 
             // Comandos de Chat
@@ -64,7 +64,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [GERENTE DE CHAT] ERRO CRÍTICO: {ex.Message}");
+            CPH.LogError($">>> [GERENTE_DE_CHAT] ERRO CRÍTICO: {ex.Message}");
             return false;
         }
     }
@@ -123,13 +123,13 @@ public class CPHInline
 
                 if (!string.IsNullOrEmpty(moedasSurpresaPalavra) && actionComparaPalavra != null && actionComparaPalavra.Enabled)
                 {
-                    CPH.RunAction("Youtube Compara Palavra", false);
+                    CPH.ExecuteMethod("Youtube Compara Palavra", "CompararPalavra");
                 }
                 else
                 {
                     // Mensagem desativada para não poluir o chat com mensagens de comando desconhecido
                     // CPH.SendYouTubeMessage($"@{userName} - Comando desconhecido: {comando}");
-                    CPH.LogDebug($">>> [GERENTE DE CHAT] @{userName} - Comando desconhecido: {comando}");
+                    CPH.LogDebug($">>> [GERENTE_DE_CHAT] @{userName} - Comando desconhecido: {comando}");
                 }
 
                 break;
@@ -196,8 +196,6 @@ public class CPHInline
         public string PastaSE { get; set; }
         public string CaminhoConfigSE { get; set; }
         public string CaminhoBanco { get; set; }
-
-
 
         // Construtor vazio necessário para deserialização
         public Ambiente()

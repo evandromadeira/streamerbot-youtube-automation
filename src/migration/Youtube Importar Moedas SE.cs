@@ -5,31 +5,27 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-// Atualização 260822.1255
+// Atualização 260903.1635
 public class CPHInline
 {
     public bool ImportarMoedasStreamElements()
     {
-        Evento evento = null;
-        Ambiente ambiente = null;
-
         bool debitoSucesso = false;
         string twitchUser = null;
         int moedasAImportar = 0;
 
+        Evento evento = null;
+
         try
         {
-            CPH.TryGetArg("contextoJson", out string contextoJson);
-            var contexto = string.IsNullOrEmpty(contextoJson) ? null : JsonConvert.DeserializeObject<Contexto>(contextoJson);
-
+            var contexto = ObterContexto();
             if (contexto?.Evento == null || contexto.Ambiente == null)
             {
-                CPH.LogError(">>> [IMPORT_MOEDAS_SE] ERRO: contexto ausente ou inválido.");
+                CPH.LogError(">>> [IMPORTAR_MOEDAS_SE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-
             evento = contexto.Evento;
-            ambiente = contexto.Ambiente;
+            var ambiente = contexto.Ambiente;
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
@@ -44,14 +40,14 @@ public class CPHInline
 
             if (string.IsNullOrEmpty(ambiente.PastaSE))
             {
-                CPH.LogError(">>> [IMPORT_MOEDAS_SE] ERRO: Variável global 'caminhoPastaStreamElements' não definida!");
+                CPH.LogError(">>> [IMPORTAR_MOEDAS_SE] ERRO: Variável global 'caminhoPastaStreamElements' não definida!");
                 CPH.SendYouTubeMessage("❌ Erro de configuração: pasta do StreamElements não localizada.");
                 return false;
             }
 
             if (!File.Exists(ambiente.CaminhoConfigSE))
             {
-                CPH.LogError($">>> [IMPORT_MOEDAS_SE] ERRO: Arquivo {ambiente.CaminhoConfigSE} não localizado!");
+                CPH.LogError($">>> [IMPORTAR_MOEDAS_SE] ERRO: Arquivo {ambiente.CaminhoConfigSE} não localizado!");
                 CPH.SendYouTubeMessage("❌ Erro interno: arquivo de credenciais ausente.");
                 return false;
             }
@@ -61,7 +57,7 @@ public class CPHInline
 
             if (string.IsNullOrEmpty(usuarioEmissao))
             {
-                CPH.LogError(">>> [IMPORT_MOEDAS_SE] ERRO: Variável global 'usuarioEmissao' não definida!");
+                CPH.LogError(">>> [IMPORTAR_MOEDAS_SE] ERRO: Variável global 'usuarioEmissao' não definida!");
                 CPH.SendYouTubeMessage("❌ Erro de configuração: usuário emissor não localizado.");
                 return false;
             }
@@ -74,7 +70,7 @@ public class CPHInline
 
             if (string.IsNullOrEmpty(jwtToken) || string.IsNullOrEmpty(idCanal))
             {
-                CPH.LogError($">>> [IMPORT_MOEDAS_SE] ERRO: Token ou Channel ID ausentes para o canal {usuarioEmissao}!");
+                CPH.LogError($">>> [IMPORTAR_MOEDAS_SE] ERRO: Token ou Channel ID ausentes para o canal {usuarioEmissao}!");
                 CPH.SendYouTubeMessage("❌ Falha de autenticação com o StreamElements.");
                 return false;
             }
@@ -131,7 +127,7 @@ public class CPHInline
             bool creditou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
             if (!creditou)
             {
-                CPH.LogError($">>> [IMPORT_MOEDAS_SE] ATENÇÃO — AJUSTE MANUAL NECESSÁRIO: {moedasAImportar} pontos já foram debitados de '{twitchUser}' na StreamElements mas NÃO foram creditados no YouTube (destinatário: {evento.UserName} / userId: {evento.UserId}).");
+                CPH.LogError($">>> [IMPORTAR_MOEDAS_SE] ATENÇÃO — AJUSTE MANUAL NECESSÁRIO: {moedasAImportar} pontos já foram debitados de '{twitchUser}' na StreamElements mas NÃO foram creditados no YouTube (destinatário: {evento.UserName} / userId: {evento.UserId}).");
                 CPH.SendYouTubeMessage("❌ Falha técnica ao tentar concluir a importação.");
                 return false;
             }
@@ -148,11 +144,11 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [IMPORT_MOEDAS_SE] ERRO CRÍTICO: " + ex.Message);
+            CPH.LogError(">>> [IMPORTAR_MOEDAS_SE] ERRO CRÍTICO: " + ex.Message);
 
             if (debitoSucesso)
             {
-                CPH.LogError($">>> [IMPORT_MOEDAS_SE] ATENÇÃO — AJUSTE MANUAL NECESSÁRIO: {moedasAImportar} pontos já foram debitados de '{twitchUser}' na StreamElements mas NÃO foram creditados no YouTube (destinatário: {evento?.UserName} / userId: {evento?.UserId}).");
+                CPH.LogError($">>> [IMPORTAR_MOEDAS_SE] ATENÇÃO — AJUSTE MANUAL NECESSÁRIO: {moedasAImportar} pontos já foram debitados de '{twitchUser}' na StreamElements mas NÃO foram creditados no YouTube (destinatário: {evento?.UserName} / userId: {evento?.UserId}).");
             }
 
             CPH.SendYouTubeMessage("❌ Falha técnica ao tentar concluir a importação.");
@@ -250,6 +246,15 @@ public class CPHInline
     {
         public Evento Evento { get; set; }
         public Ambiente Ambiente { get; set; }
+    }
+
+    private Contexto ObterContexto()
+    {
+        CPH.TryGetArg("contextoJson", out string contextoJson);
+        if (string.IsNullOrEmpty(contextoJson))
+            return null;
+
+        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
     }
 
     public class Evento

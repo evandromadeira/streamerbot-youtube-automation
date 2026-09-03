@@ -1,16 +1,22 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260820.2015
+// Atualização 260903.1655
 public class CPHInline
 {
     private static readonly object moedasSurpresaLock = new object();
 
-    public bool Execute()
+    public bool CompararPalavra()
     {
         try
         {
-            var evento = new Evento(CPH);
+            var contexto = ObterContexto();
+            if (contexto?.Evento == null)
+            {
+                CPH.LogError(">>> [COMPARA_PALAVRA] ERRO: não foi possível ler o contexto do evento.");
+                return false;
+            }
+            var evento = contexto.Evento;
 
             var palavraSurpresa = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true);
 
@@ -56,7 +62,7 @@ public class CPHInline
                     bool executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
                     if (!executou)
                     {
-                        CPH.LogError($">>> [YT COMPARA PALAVRA] ERRO CRÍTICO: Falha ao adicionar moedas para @{evento.UserName}.");
+                        CPH.LogError($">>> [COMPARA_PALAVRA] ERRO CRÍTICO: Falha ao adicionar moedas para @{evento.UserName}.");
                         return false;
                     }
 
@@ -97,39 +103,33 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [YT COMPARA PALAVRA] ERRO: " + ex.Message);
+            CPH.LogError(">>> [COMPARA_PALAVRA] ERRO: " + ex.Message);
             return false;
         }
     }
 
+    public class Contexto
+    {
+        public Evento Evento { get; set; }
+    }
+
+    private Contexto ObterContexto()
+    {
+        CPH.TryGetArg("contextoJson", out string contextoJson);
+        if (string.IsNullOrEmpty(contextoJson))
+            return null;
+
+        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
+    }
+
     public class Evento
     {
-        public string UserId { get; }
-        public string UserName { get; }
-        public string MessageText { get; }
-        public string BroadcastUserId { get; }
-        public string BroadcastUserName { get; }
-
-        public bool IsSub { get; }
-        public bool IsSpo { get; }
-
-        public Evento(IInlineInvokeProxy CPH)
-        {
-            CPH.TryGetArg("isSubscribed", out bool isSub);
-            CPH.TryGetArg("userIsSponsor", out bool isSpo);
-            CPH.TryGetArg("user", out string userName);
-            CPH.TryGetArg("userId", out string userId);
-            CPH.TryGetArg("message", out string messageText);
-            CPH.TryGetArg("broadcastUserId", out string broadcastUserId);
-            CPH.TryGetArg("broadcastUserName", out string broadcastUserName);
-
-            IsSub = isSub;
-            IsSpo = isSpo;
-            UserName = userName;
-            UserId = userId;
-            MessageText = messageText;
-            BroadcastUserId = broadcastUserId;
-            BroadcastUserName = string.IsNullOrEmpty(broadcastUserName) ? "YOUTUBE" : broadcastUserName;
-        }
+        public string UserId { get; set; }
+        public string UserName { get; set; }
+        public string MessageText { get; set; }
+        public string BroadcastUserId { get; set; }
+        public string BroadcastUserName { get; set; }
+        public bool IsSub { get; set; }
+        public bool IsSpo { get; set; }
     }
 }
