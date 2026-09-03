@@ -5,6 +5,7 @@
 *.db-shm
 Thumbs.db
 desktop.ini
+todos_codigos.cs
 
 # Editor
 .vs/
