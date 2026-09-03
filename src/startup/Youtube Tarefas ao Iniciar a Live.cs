@@ -2,21 +2,17 @@ using System;
 using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 260820.2045
+// Atualização 260903.1545
 public class CPHInline
 {
     public bool Execute()
     {
         var broadcastAtual = CPH.YouTubeGetLatestMonitoredBroadcast();
-
         string broadcastIdAtual = broadcastAtual?.Id;
 
         if (string.IsNullOrEmpty(broadcastIdAtual))
         {
-            CPH.LogWarn(">>> [INICIO_LIVE] Não foi possível obter o broadcast monitorado; Ativando Moedas Surpresa sem checar duplicidade.");
-
-            CPH.RunAction("Reset First Words", false); // Ativa a ação de resetar a primeira mensagem
-            CPH.RunAction("Youtube Moedas Surpresa", false);
+            CPH.LogWarn(">>> [INICIO_LIVE] Não foi possível obter o broadcast monitorado.");
         }
         else
         {
@@ -24,16 +20,18 @@ public class CPHInline
 
             if (ultimoBroadcastIdSurpresa != broadcastIdAtual)
             {
-                CPH.RunAction("Reset First Words", false); // Ativa a ação de resetar a primeira mensagem
-                CPH.RunAction("Youtube Moedas Surpresa", false); // Ativa a ação das moedas surpresa
+                CPH.RunAction("Reset First Words", false);
+                CPH.UnsetGlobalVar("moedasSurpresaAtivo", false); // non-persisted
 
                 CPH.SetGlobalVar("ultimoBroadcastId", broadcastIdAtual, true);
             }
             else
             {
-                CPH.LogDebug(">>> [INICIO_LIVE] Moedas Surpresa já ativado para esse broadcast, ignorando repetição.");
+                CPH.LogDebug(">>> [INICIO_LIVE] Já processado para esse broadcast (Reset First Words ignorado).");
             }
         }
+
+        CPH.RunAction("Youtube Moedas Surpresa", false);
 
         bool schemaOk = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "GarantirSchema");
 
@@ -46,7 +44,7 @@ public class CPHInline
         }
 
         CPH.SendYouTubeMessage("Todas ações de início de live concluídas com sucesso!");
-        
+
         return true;
     }
 }

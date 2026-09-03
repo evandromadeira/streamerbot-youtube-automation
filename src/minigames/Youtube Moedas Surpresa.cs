@@ -1,11 +1,30 @@
 using System;
 using System.Collections.Generic;
 
-// Atualização 260824.1135
+// Atualização 260903.1545
 public class CPHInline
 {
     public bool Execute()
     {
+        bool isContinuacao = CPH.GetGlobalVar<bool>("moedasSurpresaContinuacao", false);
+
+        if (isContinuacao)
+        {
+            CPH.UnsetGlobalVar("moedasSurpresaContinuacao", false);
+        }
+        else
+        {
+            bool jaAtivo = CPH.GetGlobalVar<bool>("moedasSurpresaAtivo", false); // non-persisted
+
+            if (jaAtivo)
+            {
+                CPH.LogDebug(">>> [MOEDAS SURPRESA] Já existe um ciclo em execução, ignorando novo start.");
+                return true;
+            }
+
+            CPH.SetGlobalVar("moedasSurpresaAtivo", true, false); // non-persisted
+        }
+
         try
         {
             Random rnd = new Random();
@@ -59,7 +78,8 @@ public class CPHInline
 
             CPH.LogInfo(">>> [MOEDAS SURPRESA] Tempo esgotado! Variáveis limpas.");
 
-            // Reinicia o ciclo chamando a Action atualizada
+            // Reinicia o ciclo chamando a Action atualizada, marcando como continuação
+            CPH.SetGlobalVar("moedasSurpresaContinuacao", true, false);
             CPH.RunAction("Youtube Moedas Surpresa", false);
 
             return true;
@@ -67,6 +87,10 @@ public class CPHInline
         catch (Exception ex)
         {
             CPH.LogError(">>> [MOEDAS SURPRESA] ERRO CRÍTICO: " + ex.Message);
+
+            // Libera a trava para não travar o sistema numa live futura
+            CPH.UnsetGlobalVar("moedasSurpresaAtivo", false); // non-persisted
+
             return false;
         }
     }
