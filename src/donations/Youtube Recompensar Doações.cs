@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 260903.2250
+// Atualização 260904.1010
 public class CPHInline
 {
     public bool Execute()
@@ -66,7 +66,7 @@ public class CPHInline
         // ------------------------------------------------------------------
         else if (evento.TipoAcao == "Tip")
         {
-            double valorConversaoLivePix = 0.95;
+            double valorConversaoLivePix = 0.9;
             valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
             pontosMeta = (int)Math.Round(valorConversaoLivePix * valorEmBRL * 100);
             moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
@@ -314,7 +314,7 @@ public class CPHInline
             BroadcastUserId = IsTipLivePix ? "" : broadcastUserId;
             BroadcastUserName = IsTipLivePix ? (string.IsNullOrEmpty(usuarioEmissao) ? "YOUTUBE" : usuarioEmissao) : (string.IsNullOrEmpty(broadcastUserName) ? "YOUTUBE" : broadcastUserName);
             MessageId = messageId;
-            Tier = IsNewSponsor ? levelName : tier;
+            Tier = IsNewSponsor ? levelName : (IsMembershipGift ? tier : null);
 
             // Define o valor com base na ação correta
             if (IsJewels)

@@ -3,7 +3,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
-// Versão 260903.2115
+// Versão 260904.1055
 public class CPHInline
 {
     public bool AdicionarTempoPorDoacao()
@@ -26,7 +26,7 @@ public class CPHInline
 
             if (timer.SubathonAtivo)
             {
-                ExecutarGerenciaSubathon(usuario, tipoAcao, tier, totalSegundos);
+                ExecutarGerenciaSubathon(usuario, totalSegundos);
             }
 
             CPH.LogInfo($"[GERENTE_DE_TIMER] Doação processada - Usuário: {usuario} | TipoAcao: {tipoAcao} | Tier: {tier} | PontosMeta: {pontosMeta} | Segundos: {totalSegundos}");
@@ -54,6 +54,12 @@ public class CPHInline
             var evento = contexto.Evento;
             var ambiente = contexto.Ambiente;
 
+            if (!evento.IsMod)
+            {
+                CPH.LogDebug($">>> [GERENTE_DE_TIMER] Comando !timer ignorado - usuário sem permissão: {evento.UserName}");
+                return true;
+            }
+
             string entradaUsuario = ExtrairEntradaUsuario(evento.MessageText);
 
             var timer = ObtemVariaveis<VariaveisTimer>(ambiente.VariaveisTimer);
@@ -74,7 +80,7 @@ public class CPHInline
                     timer.TempoFinal = DateTime.Now.AddSeconds(timer.TempoTotal);
                     timer.Ativo = true;
                     SalvaVariaveisTimer(ambiente.VariaveisTimer, timer);
-                    CPH.RunAction("Youtube Executa Timer", true);
+                    CPH.RunAction("Youtube Executa Timer", false);
                     break;
 
                 case AcaoTimer.Parar:
@@ -164,7 +170,7 @@ public class CPHInline
             timer.TempoFinal = DateTime.Now.AddSeconds(timer.TempoTotal);
             timer.Ativo = true;
             SalvaVariaveisTimer(ambiente.VariaveisTimer, timer);
-            CPH.RunAction("Youtube Executa Timer", true);
+            CPH.RunAction("Youtube Executa Timer", false);
 
             CPH.LogInfo($"[GERENTE_DE_TIMER] Timer iniciado automaticamente - TempoTotal: {timer.TempoTotal}s");
         }
@@ -345,11 +351,9 @@ public class CPHInline
         return $"{(int)tempo.TotalHours:D2}:{tempo.Minutes:D2}:{tempo.Seconds:D2}";
     }
 
-    public void ExecutarGerenciaSubathon(string usuario, string tipoAcao, string tier, int totalSegundos)
+    public void ExecutarGerenciaSubathon(string usuario, int totalSegundos)
     {
         CPH.SetGlobalVar("Subathon_Usuario", usuario, true);
-        CPH.SetGlobalVar("Subathon_TipoAcao", tipoAcao, true);
-        CPH.SetGlobalVar("Subathon_Tier", tier ?? "", true);
         CPH.SetGlobalVar("Subathon_TotalSegundos", totalSegundos, true);
 
         CPH.RunAction("Youtube Gerencia Subathon", true);
@@ -372,6 +376,7 @@ public class CPHInline
 
     public class Evento
     {
+        public bool IsMod { get; set; }
         public string UserName { get; set; }
         public string MessageText { get; set; }
     }

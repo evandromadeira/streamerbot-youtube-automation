@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using Newtonsoft.Json;
 
-// Versão 260903.1925
+// Versão 260904.1050
 public class CPHInline
 {
     public bool Execute()
@@ -37,7 +37,7 @@ public class CPHInline
 
                     subathon.Doacao3 = subathon.Doacao2;
                     subathon.Doacao2 = subathon.Doacao1;
-                    subathon.Doacao1 = ($"{evento.Usuario} - {FormatarValor(evento)}{(timer.MultiplicadorDeTempo == 2 ? " (2x)" : "")} - {FormatarTempo(evento.TotalSegundos)}");
+                    subathon.Doacao1 = ($"{evento.Usuario} Add {FormatarTempo(evento.TotalSegundos)}");
 
                     if (subathon.TempoAcumuladoHojeSeg >= subathon.MetaDiariaSeg && timer.MultiplicadorDeTempo == 1)
                     {
@@ -48,7 +48,7 @@ public class CPHInline
                 }
 
                 int TempoParaBonusSeg = subathon.MetaDiariaSeg - subathon.TempoAcumuladoHojeSeg;
-                subathon.TempoParaBonus = (TempoParaBonusSeg > 0) ? ($"Faltam {FormatarTempo(TempoParaBonusSeg)} para o Bônus 2x") : ($"Bônus 2x Ativado!");
+                subathon.TempoParaBonus = (TempoParaBonusSeg > 0) ? ($"{FormatarTempo(TempoParaBonusSeg)} para o Bônus 2x") : ($"Bônus 2x Ativado!");
                 SalvaVariaveis(subathon, ambiente.VariaveisSubathon);
 
                 CPH.ObsSetGdiText("Timer", "Subathon_TempoParaBonus", subathon.TempoParaBonus, 0);
@@ -132,23 +132,6 @@ public class CPHInline
         }
     }
 
-    public string FormatarValor(Evento evento)
-    {
-        string nomeEvento = evento.TipoAcao switch
-        {
-            "Super Chat" => "Super Chat",
-            "Super Sticker" => "Super Sticker",
-            "Jewels Gifted" => "Joias",
-            "New Sponsor" => "Novo Membro",
-            "Member Milestone" => "Membership",
-            "Membership Gift" => "Presente Membership",
-            "Tip" => "Tip",
-            _ => evento.TipoAcao
-        };
-
-        return string.IsNullOrEmpty(evento.Tier) ? nomeEvento : $"{nomeEvento} {evento.Tier}";
-    }
-
     public string FormatarTempo(int totalSegundos)
     {
         TimeSpan tempo = TimeSpan.FromSeconds(totalSegundos);
@@ -165,20 +148,14 @@ public class CPHInline
     public class Evento
     {
         public string Usuario { get; }
-        public string TipoAcao { get; }
-        public string Tier { get; }
         public int TotalSegundos { get; }
 
         public Evento(IInlineInvokeProxy CPH)
         {
             Usuario = CPH.GetGlobalVar<string>("Subathon_Usuario", true);
-            TipoAcao = CPH.GetGlobalVar<string>("Subathon_TipoAcao", true);
-            Tier = CPH.GetGlobalVar<string>("Subathon_Tier", true);
             TotalSegundos = CPH.GetGlobalVar<int>("Subathon_TotalSegundos", true);
 
             CPH.UnsetGlobalVar("Subathon_Usuario", true);
-            CPH.UnsetGlobalVar("Subathon_TipoAcao", true);
-            CPH.UnsetGlobalVar("Subathon_Tier", true);
             CPH.UnsetGlobalVar("Subathon_TotalSegundos", true);
         }
     }
