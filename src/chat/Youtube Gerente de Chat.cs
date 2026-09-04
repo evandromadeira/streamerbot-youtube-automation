@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260903.1700
+// Atualização 260903.1835
 public class CPHInline
 {
     public bool Execute()
@@ -111,6 +111,9 @@ public class CPHInline
                 break;
             case "!audios":
                 CPH.ExecuteMethod("Youtube Gerente de Áudio", "ListarAudios");
+                break;
+            case "!timer":
+                CPH.ExecuteMethod("Youtube Gerente de Timer", "ProcessarComando");
                 break;
             default:
                 bool audioTocado = CPH.ExecuteMethod("Youtube Gerente de Áudio", "ReproduzirAudio");

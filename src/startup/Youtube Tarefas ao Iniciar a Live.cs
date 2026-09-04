@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 260903.1545
+// Atualização 260903.2110
 public class CPHInline
 {
     public bool Execute()
@@ -24,6 +24,8 @@ public class CPHInline
                 CPH.UnsetGlobalVar("moedasSurpresaAtivo", false); // non-persisted
 
                 CPH.SetGlobalVar("ultimoBroadcastId", broadcastIdAtual, true);
+
+                CPH.ExecuteMethod("Youtube Gerente de Timer", "IniciarTimer");
             }
             else
             {

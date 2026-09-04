@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 260823.1000
+// Atualização 260903.2250
 public class CPHInline
 {
     public bool Execute()
@@ -41,7 +42,7 @@ public class CPHInline
         {
             if (EventoDuplicado(evento))
             {
-                CPH.LogInfo($">>> [YT DOAÇÃO] Evento 'New Sponsor' duplicado ignorado: {evento.Usuario} / {evento.Tier}");
+                CPH.LogInfo($">>> [RECOMPENSAR_DOAÇÕES] Evento 'New Sponsor' duplicado ignorado: {evento.Usuario} / {evento.Tier}");
                 return true;
             }
 
@@ -72,13 +73,13 @@ public class CPHInline
         }
         else
         {
-            CPH.LogWarn($">>> [YT DOAÇÃO] Tipo de ação não tratado: '{evento.TipoAcao}'. Ignorado.");
+            CPH.LogWarn($">>> [RECOMPENSAR_DOAÇÕES] Tipo de ação não tratado: '{evento.TipoAcao}'. Ignorado.");
             return false;
         }
 
         if (pontosMeta <= 0 && moedaGanha <= 0)
         {
-            CPH.LogWarn(">>> [YT DOAÇÃO] Valores calculados inválidos, ignorando.");
+            CPH.LogWarn(">>> [RECOMPENSAR_DOAÇÕES] Valores calculados inválidos, ignorando.");
             return false;
         }
 
@@ -94,6 +95,15 @@ public class CPHInline
         {
             CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
             return false;
+        }
+
+        if (SubathonEstaAtivo())
+        {
+            CPH.SetArgument("timerUsuario", evento.Usuario);
+            CPH.SetArgument("timerTipoAcao", evento.TipoAcao);
+            CPH.SetArgument("timerTier", evento.Tier ?? "");
+            CPH.SetArgument("timerPontosMeta", pontosMeta);
+            CPH.ExecuteMethod("Youtube Gerente de Timer", "AdicionarTempoPorDoacao");
         }
 
         // Insere a transação na tabela YoutubeDoacoes
@@ -123,10 +133,35 @@ public class CPHInline
         double taxaCambio = taxasConversaoParaBRL.TryGetValue(moeda, out double taxaEncontrada) ? taxaEncontrada : 1.0;
         if (taxaCambio == 1.0 && moeda != "BRL")
         {
-            CPH.LogWarn($">>> [YT DOAÇÃO] Moeda '{moeda}' sem taxa cadastrada, usando 1:1 como fallback.");
+            CPH.LogWarn($">>> [RECOMPENSAR_DOAÇÕES] Moeda '{moeda}' sem taxa cadastrada, usando 1:1 como fallback.");
         }
 
         return valor * taxaCambio;
+    }
+
+    private bool SubathonEstaAtivo()
+    {
+        try
+        {
+            Ambiente ambiente = new Ambiente(CPH);
+
+            if (!File.Exists(ambiente.VariaveisTimer)) return false;
+
+            string json = File.ReadAllText(ambiente.VariaveisTimer);
+            var timer = JsonConvert.DeserializeObject<VariaveisTimer>(json);
+
+            return timer?.SubathonAtivo ?? false;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError($">>> [RECOMPENSAR_DOAÇÕES] Erro ao verificar SubathonAtivo: {ex.Message}");
+            return false;
+        }
+    }
+
+    private class VariaveisTimer
+    {
+        public bool SubathonAtivo { get; set; }
     }
 
     private bool EventoDuplicado(Evento evento)
@@ -146,7 +181,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [YT DOAÇÃO] Erro ao checar duplicidade: {ex.Message}");
+            CPH.LogError($">>> [RECOMPENSAR_DOAÇÕES] Erro ao checar duplicidade: {ex.Message}");
 
             return false; // falha na checagem não deve bloquear uma doação real
         }
@@ -210,7 +245,7 @@ public class CPHInline
         bool salvou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SalvarDoacao");
         if (!salvou)
         {
-            CPH.LogError($">>> [YT DOAÇÃO] Erro ao inserir doação (usuário: {evento.Usuario}).");
+            CPH.LogError($">>> [RECOMPENSAR_DOAÇÕES] Erro ao inserir doação (usuário: {evento.Usuario}).");
         }
     }
 
@@ -320,11 +355,24 @@ public class CPHInline
                 { "Tulipa Platina", 23.99 },
                 { "Ferro", 7.99 },
                 { "Diamante", 11.99 },
-                { "Netherite", 19.99 },
-                { "Suprema", 49.99 }
+                { "Netherite", 15.99 },
+                { "Suprema", 23.99 }
             };
 
             return precosTier.TryGetValue(tier ?? "", out double preco) ? preco : 0;
+        }
+    }
+
+    public class Ambiente
+    {
+        public string PastaRaiz { get; set; }
+
+        public string PastaVariaveis => Path.Combine(PastaRaiz, "Variáveis");
+        public string VariaveisTimer => Path.Combine(PastaVariaveis, "Timer_Variaveis.json");
+
+        public Ambiente(IInlineInvokeProxy CPH)
+        {
+            PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true) ?? "";
         }
     }
 }
