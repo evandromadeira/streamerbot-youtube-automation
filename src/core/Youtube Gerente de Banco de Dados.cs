@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260901.1125
+// Atualização 260904.1130
 // Camada de dados da automação da live: Centraliza todo o acesso ao SQLite (YoutubeStream.db)
 public class CPHInline
 {
@@ -1751,6 +1751,86 @@ public class CPHInline
             cmd.Parameters.AddWithValue("@userId", userId);
             var resultado = cmd.ExecuteScalar();
             return resultado?.ToString();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Conta em quantos dias diferentes um usuário mandou mensagem no chat
+    // ------------------------------------------------------------------
+    public bool ObterDiasDePresenca()
+    {
+        return ObterDiasDePresencaComFiltro(null);
+    }
+
+    // ------------------------------------------------------------------
+    // Conta em quantos dias diferentes um usuário mandou mensagem no chat, só no mês atual (hora local)
+    // ------------------------------------------------------------------
+    public bool ObterDiasDePresencaNoMes()
+    {
+        var inicioMes = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        return ObterDiasDePresencaComFiltro(inicioMes);
+    }
+
+    // ------------------------------------------------------------------
+    // Implementação compartilhada da consulta de dias de presença, com filtro de data opcional
+    // ------------------------------------------------------------------
+    private bool ObterDiasDePresencaComFiltro(DateTime? desde)
+    {
+        try
+        {
+            CPH.TryGetArg("presencaUserId", out string userId);
+            CPH.TryGetArg("presencaUserName", out string userName);
+
+            Ambiente ambiente = new Ambiente();
+            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+
+            using (var connection = AbrirConexao(ambiente))
+            {
+                if (string.IsNullOrEmpty(userId) && !string.IsNullOrEmpty(userName))
+                {
+                    userId = BuscarUserIdPorNome(connection, userName);
+                }
+
+                if (string.IsNullOrEmpty(userId))
+                {
+                    CPH.SetArgument("presencaEncontrado", false);
+                    return true;
+                }
+
+                int dias = ContarDiasPresenca(connection, userId, desde);
+                string nomeResolvido = BuscarUserNamePorId(connection, userId);
+
+                CPH.SetArgument("presencaEncontrado", dias > 0);
+                CPH.SetArgument("presencaDias", dias);
+                CPH.SetArgument("presencaUserNameResolvido", nomeResolvido ?? userName ?? "");
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao obter dias de presença: " + ex.Message);
+            return false;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Conta dias distintos com mensagem no YoutubeChatLog, opcionalmente a partir de uma data
+    // ------------------------------------------------------------------
+    private int ContarDiasPresenca(SQLiteConnection connection, string userId, DateTime? desde)
+    {
+        string sql = "SELECT COUNT(DISTINCT DATE(publishedAt)) FROM YoutubeChatLog WHERE userId = @userId";
+        if (desde.HasValue)
+            sql += " AND publishedAt >= @desde";
+
+        using (var cmd = new SQLiteCommand(sql, connection))
+        {
+            cmd.Parameters.AddWithValue("@userId", userId);
+            if (desde.HasValue)
+                cmd.Parameters.AddWithValue("@desde", desde.Value.ToString("yyyy-MM-dd HH:mm:ss"));
+
+            var resultado = cmd.ExecuteScalar();
+            return resultado != null && resultado != DBNull.Value ? Convert.ToInt32(resultado) : 0;
         }
     }
 
