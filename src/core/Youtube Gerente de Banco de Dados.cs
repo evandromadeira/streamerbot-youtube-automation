@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260904.1130
+// Atualização 260911.1910
 // Camada de dados da automação da live: Centraliza todo o acesso ao SQLite (YoutubeStream.db)
 public class CPHInline
 {
@@ -1615,7 +1615,12 @@ public class CPHInline
     {
         var connection = new SQLiteConnection($"Data Source={ambiente.CaminhoBanco};Version=3;");
         connection.Open();
-        using (var pragmaCmd = new SQLiteCommand("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=3000;", connection))
+        using (var pragmaCmd = new SQLiteCommand(
+            @"PRAGMA journal_mode=WAL;
+              PRAGMA synchronous=NORMAL;
+              PRAGMA busy_timeout=3000;
+              PRAGMA foreign_keys=ON;",
+            connection))
         {
             pragmaCmd.ExecuteNonQuery();
         }
