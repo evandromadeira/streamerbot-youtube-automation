@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-// Atualização 260903.1545
+// Atualização 260913.1005
 public class CPHInline
 {
     public bool Execute()
@@ -18,7 +18,7 @@ public class CPHInline
 
             if (jaAtivo)
             {
-                CPH.LogDebug(">>> [MOEDAS SURPRESA] Já existe um ciclo em execução, ignorando novo start.");
+                CPH.LogInfo(">>> [MOEDAS SURPRESA] Já existe um ciclo em execução, ignorando novo start.");
                 return true;
             }
 
