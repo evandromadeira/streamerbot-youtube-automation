@@ -3,7 +3,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
-// Versão 260904.1055
+// Versão 260913.1545
 public class CPHInline
 {
     public bool AdicionarTempoPorDoacao()
@@ -13,14 +13,14 @@ public class CPHInline
             CPH.TryGetArg("timerUsuario", out string usuario);
             CPH.TryGetArg("timerTipoAcao", out string tipoAcao);
             CPH.TryGetArg("timerTier", out string tier);
-            CPH.TryGetArg("timerPontosMeta", out int pontosMeta);
+            CPH.TryGetArg("timerPontosMeta", out double pontosMeta);
 
             Ambiente ambiente = new Ambiente();
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
 
             var timer = ObtemVariaveis<VariaveisTimer>(ambiente.VariaveisTimer);
 
-            int totalSegundos = (int)Math.Floor(pontosMeta * timer.SegundosPorPonto * timer.MultiplicadorDeTempo);
+            int totalSegundos = (int)Math.Round(pontosMeta * timer.SegundosPorPonto * timer.MultiplicadorDeTempo);
 
             AtualizarTempoFinal(ambiente.VariaveisTimer, totalSegundos, timer);
 
@@ -29,7 +29,7 @@ public class CPHInline
                 ExecutarGerenciaSubathon(usuario, totalSegundos);
             }
 
-            CPH.LogInfo($"[GERENTE_DE_TIMER] Doação processada - Usuário: {usuario} | TipoAcao: {tipoAcao} | Tier: {tier} | PontosMeta: {pontosMeta} | Segundos: {totalSegundos}");
+            CPH.LogInfo($"[GERENTE_DE_TIMER] Doação processada - Usuário: {usuario} | TipoAcao: {tipoAcao} | Tier: {tier} | PontosMeta: {(int)Math.Round(pontosMeta)} | Segundos: {totalSegundos}");
         }
         catch (Exception ex)
         {
@@ -56,7 +56,7 @@ public class CPHInline
 
             if (!evento.IsMod)
             {
-                CPH.LogDebug($">>> [GERENTE_DE_TIMER] Comando !timer ignorado - usuário sem permissão: {evento.UserName}");
+                CPH.LogInfo($">>> [GERENTE_DE_TIMER] Comando !timer ignorado - usuário sem permissão: {evento.UserName}");
                 return true;
             }
 
@@ -154,6 +154,12 @@ public class CPHInline
             ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
 
             var timer = ObtemVariaveis<VariaveisTimer>(ambiente.VariaveisTimer);
+
+            if (!timer.SubathonAtivo)
+            {
+                CPH.LogInfo("[GERENTE_DE_TIMER] Início automático ignorado: modo Subathon desativado.");
+                return true;
+            }
 
             if (timer.Ativo)
             {
@@ -353,8 +359,8 @@ public class CPHInline
 
     public void ExecutarGerenciaSubathon(string usuario, int totalSegundos)
     {
-        CPH.SetGlobalVar("Subathon_Usuario", usuario, true);
-        CPH.SetGlobalVar("Subathon_TotalSegundos", totalSegundos, true);
+        CPH.SetGlobalVar("Subathon_Usuario", usuario, false);
+        CPH.SetGlobalVar("Subathon_TotalSegundos", totalSegundos, false);
 
         CPH.RunAction("Youtube Gerencia Subathon", true);
     }
