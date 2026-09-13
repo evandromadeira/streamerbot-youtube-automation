@@ -3,28 +3,37 @@ using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 260904.1010
+// Atualização 260913.1610
+// Triggers -> Source: Youtube > Chat       | Type: Super Chat       | Enabled: Yes | Criteria: Any
+//          -> Source: Youtube > Chat       | Type: Super Sticker    | Enabled: Yes | Criteria: Any
+//          -> Source: Youtube > Chat       | Type: Jewels Gifted    | Enabled: Yes | Criteria: Any
+//          -> Source: Youtube > General    | Type: New Sponsor      | Enabled: Yes | Criteria: none
+//          -> Source: Youtube > Membership | Type: Member Milestone | Enabled: Yes | Criteria: none
+//          -> Source: Youtube > Membership | Type: Membership Gift  | Enabled: Yes | Criteria: none
+//          -> Source: StreamElements       | Type: Tip              | Enabled: Yes | Criteria: Any
 public class CPHInline
 {
     public bool Execute()
     {
         Evento evento = new Evento(CPH);
         Random rnd = new Random();
-        
+
         int multiplicador = rnd.Next(50, 1001);
-        int pontosMeta = 0;
         int moedaGanha = 0;
+
         double valorEmBRL = 0;
+        double pontosMeta = 0;
 
         // ------------------------------------------------------------------
         // Super Chat / Super Sticker
         // ------------------------------------------------------------------
         if (evento.TipoAcao == "Super Chat" || evento.TipoAcao == "Super Sticker")
         {
-            double valorConversaoSuperChat = 0.7;
+            // 0.692307 Multiplicador para Subathon onde R$ 2,00 = 3 minutos
+            double valorConversao = 0.692307;
             valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
-            pontosMeta = (int)Math.Round(valorConversaoSuperChat * valorEmBRL * 100);
             moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
+            pontosMeta = valorConversao * valorEmBRL * 100;
         }
         // ------------------------------------------------------------------
         // Jewels Gifted
@@ -32,8 +41,8 @@ public class CPHInline
         else if (evento.TipoAcao == "Jewels Gifted")
         {
             valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
-            pontosMeta = (int)Math.Round(valorEmBRL * 100);
             moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
+            pontosMeta = valorEmBRL * 100;
         }
         // ------------------------------------------------------------------
         // New Sponsor (novo membro)
@@ -42,34 +51,37 @@ public class CPHInline
         {
             if (EventoDuplicado(evento))
             {
-                CPH.LogInfo($">>> [RECOMPENSAR_DOAÇÕES] Evento 'New Sponsor' duplicado ignorado: {evento.Usuario} / {evento.Tier}");
+                CPH.LogInfo($">>> [RECOMPENSAR_DOAÇÕES] Evento '{evento.TipoAcao}' duplicado ignorado: {evento.Usuario} / {evento.Tier}");
                 return true;
             }
 
-            double valorConversaoNewSponsor = 0.7;
+            // 0.693174 Multiplicador para Subathon onde R$ 7,99 = 12 minutos
+            double valorConversao = 0.693174;
             valorEmBRL = evento.Valor;
-            pontosMeta = (int)Math.Round(valorConversaoNewSponsor * valorEmBRL * 100);
             moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
+            pontosMeta = valorConversao * valorEmBRL * 100;
         }
         // ------------------------------------------------------------------
         // Membership Gift (presente de membership)
         // ------------------------------------------------------------------
         else if (evento.TipoAcao == "Membership Gift")
         {
-            double valorConversaoMembership = 0.7;
+            // 0.693174 Multiplicador para Subathon onde R$ 7,99 = 12 minutos
+            double valorConversao = 0.693174;
             valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
-            pontosMeta = (int)Math.Round(valorConversaoMembership * valorEmBRL * 100);
             moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
+            pontosMeta = valorConversao * valorEmBRL * 100;
         }
         // ------------------------------------------------------------------
         // Tip via LivePix (StreamElements)
         // ------------------------------------------------------------------
         else if (evento.TipoAcao == "Tip")
         {
-            double valorConversaoLivePix = 0.9;
+            // 0.923076 Multiplicador para Subathon onde R$ 1,00 = 2 minutos
+            double valorConversao = 0.923076;
             valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
-            pontosMeta = (int)Math.Round(valorConversaoLivePix * valorEmBRL * 100);
             moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
+            pontosMeta = valorConversao * valorEmBRL * 100;
         }
         else
         {
@@ -77,6 +89,7 @@ public class CPHInline
             return false;
         }
 
+        int pontosMetaInt = (int)Math.Round(pontosMeta);
         if (pontosMeta <= 0 && moedaGanha <= 0)
         {
             CPH.LogWarn(">>> [RECOMPENSAR_DOAÇÕES] Valores calculados inválidos, ignorando.");
@@ -107,10 +120,10 @@ public class CPHInline
         }
 
         // Insere a transação na tabela YoutubeDoacoes
-        InserirDoacao(evento, pontosMeta, moedaGanha, multiplicador, valorEmBRL);
+        InserirDoacao(evento, pontosMetaInt, moedaGanha, multiplicador, valorEmBRL);
 
         // Mensagem de agradecimento no chat
-        string mensagem = MontarMensagem(evento, pontosMeta, moedaGanha, multiplicador, valorEmBRL);
+        string mensagem = MontarMensagem(evento, pontosMetaInt, moedaGanha, multiplicador, valorEmBRL);
         if (mensagem.Length > 200)
             mensagem = mensagem.Substring(0, 197) + "...";
 
@@ -187,7 +200,7 @@ public class CPHInline
         }
     }
 
-    private string MontarMensagem(Evento evento, int pontosMeta, int moedaGanha, int multiplicador, double valorEmBRL)
+    private string MontarMensagem(Evento evento, int pontosMetaInt, int moedaGanha, int multiplicador, double valorEmBRL)
     {
         var (nomeEvento, artigo) = evento.TipoAcao switch
         {
@@ -200,7 +213,7 @@ public class CPHInline
             "Tip"               => ("Contribuição", "pela"),
             _                   => ("Contribuição", "pela")
         };
-        string detalheTier = (evento.IsMembershipGift || evento.IsNewSponsor) && !string.IsNullOrEmpty(evento.Tier)
+        string detalheTier = (evento.IsMembershipGift || evento.IsNewSponsor || evento.IsMemberMilestone) && !string.IsNullOrEmpty(evento.Tier)
             ? $" ({evento.Tier}" + (evento.QuantidadeGifts > 1
                 ? $" x{evento.QuantidadeGifts})"
                 : ")")
@@ -210,7 +223,7 @@ public class CPHInline
             ? $"Obrigado {artigo} {evento.JewelsAmount:N0} {nomeEvento}"
             : $"Obrigado {artigo} {nomeEvento}{detalheTier} de {simboloMoeda} {evento.Valor:F2}";
         string moedasCalculo = $"({multiplicador:N0} Multiplicador x {valorEmBRL:0.00#} x 20)";
-        return $"{agradecimento}, @{evento.Usuario}! " + $"Você contribuiu com {pontosMeta:N0} Pontos para as metas " + $"e ganhou {moedaGanha:N0} Moedas! {moedasCalculo}";
+        return $"{agradecimento}, @{evento.Usuario}! " + $"Você contribuiu com {pontosMetaInt:N0} Pontos para as metas " + $"e ganhou {moedaGanha:N0} Moedas! {moedasCalculo}";
     }
 
     private string ObterSimboloMoeda(string moeda)
@@ -225,7 +238,7 @@ public class CPHInline
         return simbolosMoeda.TryGetValue(moeda, out string simbolo) ? simbolo : moeda; // fallback: mostra o código (ex: "JPY") se a moeda não estiver na lista
     }
 
-    private void InserirDoacao(Evento evento, int pontosMeta, int moedaGanha, int multiplicador, double valorEmBRL)
+    private void InserirDoacao(Evento evento, int pontosMetaInt, int moedaGanha, int multiplicador, double valorEmBRL)
     {
         CPH.SetArgument("doacaoUserId", evento.UsuarioId);
         CPH.SetArgument("doacaoUserName", evento.Usuario);
@@ -233,7 +246,7 @@ public class CPHInline
         CPH.SetArgument("doacaoValorOriginal", evento.Valor);
         CPH.SetArgument("doacaoMoedaOrigem", evento.CurrencyCode ?? "BRL");
         CPH.SetArgument("doacaoValorBRL", valorEmBRL);
-        CPH.SetArgument("doacaoPontosMeta", pontosMeta);
+        CPH.SetArgument("doacaoPontosMeta", pontosMetaInt);
         CPH.SetArgument("doacaoMoedaGanha", moedaGanha);
         CPH.SetArgument("doacaoMultiplicador", multiplicador);
         CPH.SetArgument("doacaoBroadcastUserId", evento.BroadcastUserId);
@@ -253,6 +266,7 @@ public class CPHInline
     {
         public bool IsJewels { get; }
         public bool IsNewSponsor { get; }
+        public bool IsMemberMilestone { get; }
         public bool IsMembershipGift { get; }
         public bool IsTipLivePix { get; }
 
@@ -304,6 +318,7 @@ public class CPHInline
             TipoAcao = tipoAcao;
             IsJewels = tipoAcao == "Jewels Gifted";
             IsNewSponsor = tipoAcao == "New Sponsor";
+            IsMemberMilestone = tipoAcao == "Member Milestone";
             IsMembershipGift = tipoAcao == "Membership Gift";
             IsTipLivePix = tipoAcao == "Tip";
             JewelsAmount = jewelsAmount;
@@ -314,7 +329,7 @@ public class CPHInline
             BroadcastUserId = IsTipLivePix ? "" : broadcastUserId;
             BroadcastUserName = IsTipLivePix ? (string.IsNullOrEmpty(usuarioEmissao) ? "YOUTUBE" : usuarioEmissao) : (string.IsNullOrEmpty(broadcastUserName) ? "YOUTUBE" : broadcastUserName);
             MessageId = messageId;
-            Tier = IsNewSponsor ? levelName : (IsMembershipGift ? tier : null);
+            Tier = IsNewSponsor || IsMemberMilestone ? levelName : (IsMembershipGift ? tier : null);
 
             // Define o valor com base na ação correta
             if (IsJewels)
@@ -322,7 +337,7 @@ public class CPHInline
                 Valor = JewelsAmount / 200; // 2 Jóias = 0,01 Dólar
                 CurrencyCode = "USD";
             }
-            else if (IsNewSponsor)
+            else if (IsNewSponsor || IsMemberMilestone)
             {
                 Valor = ObterValorTier(Tier);
                 CurrencyCode = "BRL";
