@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using Newtonsoft.Json;
 
-// Versão 260904.1050
+// Versão 260913.1445
 public class CPHInline
 {
     public bool Execute()
@@ -152,11 +152,11 @@ public class CPHInline
 
         public Evento(IInlineInvokeProxy CPH)
         {
-            Usuario = CPH.GetGlobalVar<string>("Subathon_Usuario", true);
-            TotalSegundos = CPH.GetGlobalVar<int>("Subathon_TotalSegundos", true);
+            Usuario = CPH.GetGlobalVar<string>("Subathon_Usuario", false);
+            TotalSegundos = CPH.GetGlobalVar<int>("Subathon_TotalSegundos", false);
 
-            CPH.UnsetGlobalVar("Subathon_Usuario", true);
-            CPH.UnsetGlobalVar("Subathon_TotalSegundos", true);
+            CPH.UnsetGlobalVar("Subathon_Usuario", false);
+            CPH.UnsetGlobalVar("Subathon_TotalSegundos", false);
         }
     }
 
