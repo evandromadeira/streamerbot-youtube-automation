@@ -45,7 +45,6 @@ This application was engineered as a **comprehensive backend engine for live str
 ```text
 streamerbot-youtube-automation/
 ├── src/
-│   ├── todos_codigos.cs                         # Arquivo consolidado com os scripts do projeto
 │   ├── chat/
 │   │   └── Youtube Gerente de Chat.cs            # Orquestrador central e roteador de eventos do chat
 │   ├── coins/
