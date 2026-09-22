@@ -45,27 +45,39 @@ This application was engineered as a **comprehensive backend engine for live str
 ```text
 streamerbot-youtube-automation/
 ├── src/
+│   ├── todos_codigos.cs                         # Arquivo consolidado com os scripts do projeto
 │   ├── chat/
-│   │   ├── Youtube Gerente de Chat.cs            # Orquestrador central e roteador de eventos do chat
-│   │   └── Youtube Salvar Mensagem.cs            # Logger e persistência assíncrona de mensagens
+│   │   └── Youtube Gerente de Chat.cs            # Orquestrador central e roteador de eventos do chat
+│   ├── coins/
+│   │   └── Youtube Gerente de Moedas.cs          # Saldos, ranking, recompensas e transferências
 │   ├── core/
-│   │   └── Youtube Gerente de Banco de Dados.cs  # Gerenciador de conexão SQLite, schema e queries genéricas
+│   │   └── Youtube Gerente de Banco de Dados.cs  # Gerenciador de conexão SQLite, schema e queries
 │   ├── donations/
 │   │   ├── Youtube Consultar Meta.cs             # Consolidação e cálculo de metas de arrecadação
-│   │   └── Youtube Recompensar Doações.cs        # Processador de Super Chats, Memberships e LivePix
+│   │   └── Youtube Recompensar Doações.cs        # Processador de Super Chats, memberships e LivePix
 │   ├── migration/
-│   │   └── Youtube Importar Pontos SE.cs         # Módulo de migração REST API (StreamElements)
+│   │   └── Youtube Importar Moedas SE.cs         # Módulo de migração via API do StreamElements
 │   ├── minigames/
 │   │   ├── Youtube Compara Palavra.cs            # Verificador thread-safe para minigames síncronos
-│   │   └── Youtube Pontos Surpresa.cs            # Engine concorrente de eventos randômicos no chat
-│   ├── points/
-│   │   ├── Youtube Adicionar Pontos.cs           # Operações atômicas de transação de pontos
-│   │   └── Youtube Consultar Pontos.cs           # Leitura de saldo, extrato e rankings
+│   │   └── Youtube Moedas Surpresa.cs            # Engine concorrente de eventos randômicos no chat
+│   ├── obs/
+│   │   └── Youtube Gerente de OBS.cs             # Alternância de fontes e integração com o OBS
+│   ├── platform/
+│   │   └── Youtube Gerente de Plataforma.cs     # Catálogo, estoque e resgates de recompensas
+│   ├── prediction/
+│   │   └── Youtube Gerente de Palpite.cs         # Criação, apostas, resultados e distribuição
+│   ├── profile/
+│   │   └── Youtube Gerente de Perfil.cs          # Dados de perfil e nível de membro
 │   ├── soundboard/
-│   │   ├── Youtube Novo Áudio.cs                 # Módulo de cadastro dinâmico de mídias MP3 e gatilhos
-│   │   └── Youtube Reproduzir Áudio.cs           # Motor de reprodução e controle de saída de áudio
-│   └── startup/
-│       └── Youtube Tarefas ao Iniciar a Live.cs  # Bootstrap e disparo de rotinas de início de transmissão
+│   │   └── Youtube Gerente de Áudio.cs           # Cadastro, aliases e reprodução de mídias MP3
+│   ├── startup/
+│   │   └── Youtube Tarefas ao Iniciar a Live.cs  # Bootstrap e rotinas de início da transmissão
+│   ├── statistics/
+│   │   └── Youtube Gerente de Estatísticas.cs    # Consultas de presença geral e mensal
+│   └── timer/
+│       ├── Youtube Executa Timer.cs              # Execução e atualização do timer
+│       ├── Youtube Gerencia Subathon.cs          # Controle de subathon e metas
+│       └── Youtube Gerente de Timer.cs           # Comandos e acréscimos de tempo
 ├── .gitignore
 └── README.md
 ```
