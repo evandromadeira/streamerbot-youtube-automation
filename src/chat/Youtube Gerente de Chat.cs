@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260904.1115
+// Atualização 260922.1505
 public class CPHInline
 {
     public bool Execute()
@@ -42,16 +42,10 @@ public class CPHInline
                 return false;
             }
 
-            CPH.LogDebug(">>> [GERENTE_DE_CHAT] DADO SALVO COM SUCESSO!");
-
             bool creditou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "RecompensarAtividadeChat");
             if (!creditou)
             {
                 CPH.LogError(">>> [GERENTE_DE_CHAT] ERRO: falha ao creditar moedas para o usuário.");
-            }
-            else
-            {
-                CPH.LogDebug(">>> [GERENTE_DE_CHAT] MOEDAS CREDITADAS COM SUCESSO!");
             }
 
             // Comandos de Chat
@@ -72,7 +66,7 @@ public class CPHInline
     private void EncaminharComando(string message, string userName)
     {
         // Extrai o comando base (a primeira palavra da mensagem)
-        string comando = message.Split(' ')[0].ToLower();
+        string comando = message.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
         switch (comando)
         {
             case "!saldo":
@@ -87,6 +81,9 @@ public class CPHInline
                 break;
             case "!topmoedas":
                 CPH.ExecuteMethod("Youtube Gerente de Moedas", "TopMoedas");
+                break;
+            case "!perfil":
+                CPH.ExecuteMethod("Youtube Gerente de Perfil", "ProcessarComando");
                 break;
             case "!importar":
                 CPH.ExecuteMethod("Youtube Importar Moedas SE", "ImportarMoedasStreamElements");
@@ -121,6 +118,9 @@ public class CPHInline
             case "!presencames":
                 CPH.ExecuteMethod("Youtube Gerente de Estatísticas", "ConsultarPresencaMes");
                 break;
+            case "!plataforma":
+                CPH.ExecuteMethod("Youtube Gerente de Plataforma", "ProcessarComando");
+                break;
             default:
                 bool audioTocado = CPH.ExecuteMethod("Youtube Gerente de Áudio", "ReproduzirAudio");
                 if (audioTocado)
@@ -138,7 +138,7 @@ public class CPHInline
                 {
                     // Mensagem desativada para não poluir o chat com mensagens de comando desconhecido
                     // CPH.SendYouTubeMessage($"@{userName} - Comando desconhecido: {comando}");
-                    CPH.LogDebug($">>> [GERENTE_DE_CHAT] @{userName} - Comando desconhecido: {comando}");
+                    CPH.LogInfo($">>> [GERENTE_DE_CHAT] @{userName} - Comando desconhecido: {comando}");
                 }
 
                 break;
@@ -199,14 +199,15 @@ public class CPHInline
 
     public class Ambiente
     {
-        public string PastaRaiz { get; set; }
-        public string PastaStream { get; set; }
-        public string PastaAudios { get; set; }
-        public string PastaSE { get; set; }
-        public string CaminhoConfigSE { get; set; }
-        public string CaminhoBanco { get; set; }
+        public string PastaRaiz { get; set; } = "";
+        public string PastaSE { get; set; } = "";
 
-        // Construtor vazio necessário para deserialização
+        public string PastaStream => Path.Combine(PastaRaiz, "Data", "YoutubeStream");
+        public string PastaAudios => Path.Combine(PastaRaiz, "Data", "Audios");
+        public string CaminhoBanco => Path.Combine(PastaStream, "YoutubeStream.db");
+        public string CaminhoConfigSE => Path.Combine(PastaSE, "ConfigSE.txt");
+
+        // Construtor vazio necessário para desserialização do contexto.
         public Ambiente()
         {
         }
@@ -215,11 +216,6 @@ public class CPHInline
         {
             PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true) ?? "";
             PastaSE = CPH.GetGlobalVar<string>("caminhoPastaStreamElements", true) ?? "";
-
-            PastaStream = Path.Combine(PastaRaiz, "Data", "YoutubeStream");
-            PastaAudios = Path.Combine(PastaRaiz, "Data", "Audios");
-            CaminhoConfigSE = Path.Combine(PastaSE, "ConfigSE.txt");
-            CaminhoBanco = Path.Combine(PastaStream, "YoutubeStream.db");
         }
     }
 }
