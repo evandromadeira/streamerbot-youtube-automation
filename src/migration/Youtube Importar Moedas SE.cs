@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-// Atualização 260903.1635
+// Atualização 260922.1505
 public class CPHInline
 {
     public bool ImportarMoedasStreamElements()
@@ -25,7 +25,7 @@ public class CPHInline
                 return false;
             }
             evento = contexto.Evento;
-            var ambiente = contexto.Ambiente;
+            Ambiente ambiente = contexto.Ambiente;
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
@@ -36,7 +36,7 @@ public class CPHInline
             }
 
             twitchUser = partes[1].Trim();
-            string qtdInput = partes[2].Trim().ToLower();
+            string qtdInput = partes[2].Trim().ToLowerInvariant();
 
             if (string.IsNullOrEmpty(ambiente.PastaSE))
             {
@@ -62,7 +62,7 @@ public class CPHInline
                 return false;
             }
 
-            string keyPrefix = usuarioEmissao.ToLower();
+            string keyPrefix = usuarioEmissao.ToLowerInvariant();
 
             string jwtToken = variaveisConfigSE.ContainsKey($"jwt_token_{keyPrefix}") ? variaveisConfigSE[$"jwt_token_{keyPrefix}"] : null;
             string idCanal = variaveisConfigSE.ContainsKey($"channel_id_{keyPrefix}") ? variaveisConfigSE[$"channel_id_{keyPrefix}"] : null;
@@ -268,8 +268,18 @@ public class CPHInline
 
     public class Ambiente
     {
-        public string PastaSE { get; set; }
+        public string PastaSE { get; set; } = "";
 
-        public string CaminhoConfigSE { get; set; }
+        public string CaminhoConfigSE => Path.Combine(PastaSE, "ConfigSE.txt");
+
+        // Construtor vazio necessário para desserialização do contexto.
+        public Ambiente()
+        {
+        }
+
+        public Ambiente(IInlineInvokeProxy CPH)
+        {
+            PastaSE = CPH.GetGlobalVar<string>("caminhoPastaStreamElements", true) ?? "";
+        }
     }
 }
