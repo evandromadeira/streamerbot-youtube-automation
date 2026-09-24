@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
-// Atualização 260903.1615
+// Atualização 260922.1605
 public class CPHInline
 {
     public bool IniciarPalpite()
@@ -17,7 +17,7 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             if (!evento.IsMod)
             {
@@ -37,7 +37,7 @@ public class CPHInline
             }
 
             int valorTempo = int.Parse(matchTempo.Groups[1].Value);
-            string unidadeTempo = matchTempo.Groups[2].Value.ToLower();
+            string unidadeTempo = matchTempo.Groups[2].Value.ToLowerInvariant();
             int durationSeconds = unidadeTempo == "h" ? valorTempo * 3600 : unidadeTempo == "m" ? valorTempo * 60 : valorTempo;
             string restoAposTempo = resto.Substring(matchTempo.Length).Trim();
 
@@ -75,7 +75,13 @@ public class CPHInline
             CPH.SetArgument("novoPalpiteBroadcastUserId", evento.BroadcastUserId);
             CPH.SetArgument("novoPalpiteBroadcastUserName", evento.BroadcastUserName);
 
-            CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "CriarPalpite");
+            if (!CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "CriarPalpite"))
+            {
+                CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: falha ao executar CriarPalpite no banco de dados.");
+                CPH.SendYouTubeMessage($"@{evento.UserName} - falha técnica ao criar o palpite.");
+                return false;
+            }
+
             CPH.TryGetArg("criarPalpiteResultado", out string resultado);
 
             switch (resultado)
@@ -112,7 +118,7 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             if (!evento.IsMod)
             {
@@ -123,16 +129,21 @@ public class CPHInline
             string mensagem = evento.MessageText ?? "";
             var partes = mensagem.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
-            if (partes.Length != 2 || partes[1].Length != 1 || partes[1][0] < 'a' || partes[1][0] > 'z')
+            string opcaoVencedora = partes.Length == 2 ? partes[1].ToLowerInvariant() : "";
+            if (opcaoVencedora.Length != 1 || opcaoVencedora[0] < 'a' || opcaoVencedora[0] > 'z')
             {
                 CPH.SendYouTubeMessage($"@{evento.UserName} - sintaxe: !resultadopalpite [letra]");
                 return true;
             }
 
-            string opcaoVencedora = partes[1].ToLower();
-
             CPH.SetArgument("resolverPalpiteOpcaoVencedora", opcaoVencedora);
-            CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ResolverPalpite");
+            if (!CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ResolverPalpite"))
+            {
+                CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: falha ao executar ResolverPalpite no banco de dados.");
+                CPH.SendYouTubeMessage($"@{evento.UserName} - falha técnica ao declarar o resultado do palpite.");
+                return false;
+            }
+
             CPH.TryGetArg("resolverPalpiteResultado", out string resultado);
 
             switch (resultado)
@@ -177,7 +188,7 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             if (!evento.IsMod)
             {
@@ -185,7 +196,13 @@ public class CPHInline
                 return true;
             }
 
-            CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "CancelarPalpite");
+            if (!CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "CancelarPalpite"))
+            {
+                CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: falha ao executar CancelarPalpite no banco de dados.");
+                CPH.SendYouTubeMessage($"@{evento.UserName} - falha técnica ao cancelar o palpite.");
+                return false;
+            }
+
             CPH.TryGetArg("cancelarPalpiteResultado", out string resultado);
 
             switch (resultado)
@@ -221,7 +238,7 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             string mensagem = evento.MessageText ?? "";
             var partes = mensagem.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -232,7 +249,7 @@ public class CPHInline
                 return true;
             }
 
-            string opcao = partes[1].ToLower();
+            string opcao = partes[1].ToLowerInvariant();
             if (opcao.Length != 1 || opcao[0] < 'a' || opcao[0] > 'z')
             {
                 CPH.SendYouTubeMessage($"@{evento.UserName} - opção inválida, use a letra da opção (a, b, c...).");
@@ -251,7 +268,13 @@ public class CPHInline
             CPH.SetArgument("apostarPalpiteValor", valor);
             CPH.SetArgument("apostarPalpiteBroadcastUserId", evento.BroadcastUserId);
 
-            CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ApostarPalpite");
+            if (!CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ApostarPalpite"))
+            {
+                CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: falha ao executar ApostarPalpite no banco de dados.");
+                CPH.SendYouTubeMessage($"@{evento.UserName} - falha técnica ao registrar a aposta.");
+                return false;
+            }
+
             CPH.TryGetArg("apostarPalpiteResultado", out string resultado);
 
             switch (resultado)
@@ -296,7 +319,12 @@ public class CPHInline
     {
         try
         {
-            CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "VerificarEncerramentoPalpite");
+            if (!CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "VerificarEncerramentoPalpite"))
+            {
+                CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: falha ao executar VerificarEncerramentoPalpite no banco de dados.");
+                return false;
+            }
+
             CPH.TryGetArg("palpiteEncerradoEncontrado", out bool encontrado);
 
             if (encontrado)
