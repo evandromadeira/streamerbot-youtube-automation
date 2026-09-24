@@ -1,7 +1,7 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260903.1655
+// Atualização 260922.1110
 public class CPHInline
 {
     private static readonly object moedasSurpresaLock = new object();
@@ -16,7 +16,7 @@ public class CPHInline
                 CPH.LogError(">>> [COMPARA_PALAVRA] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             var palavraSurpresa = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true);
 

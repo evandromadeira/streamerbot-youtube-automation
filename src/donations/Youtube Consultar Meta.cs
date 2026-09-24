@@ -1,7 +1,7 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260903.1605
+// Atualização 260922.1110
 public class CPHInline
 {
     public bool Execute()
@@ -15,7 +15,7 @@ public class CPHInline
                 return false;
             }
 
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             CPH.SetArgument("metaBroadcastUserName", evento.BroadcastUserName);
             CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ObterProgressoMeta");

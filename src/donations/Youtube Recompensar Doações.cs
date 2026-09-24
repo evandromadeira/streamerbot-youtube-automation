@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 260913.1610
+// Atualização 260922.1105
 // Triggers -> Source: Youtube > Chat       | Type: Super Chat       | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Super Sticker    | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Jewels Gifted    | Enabled: Yes | Criteria: Any
@@ -380,10 +380,15 @@ public class CPHInline
 
     public class Ambiente
     {
-        public string PastaRaiz { get; set; }
+        public string PastaRaiz { get; set; } = "";
 
         public string PastaVariaveis => Path.Combine(PastaRaiz, "Variáveis");
         public string VariaveisTimer => Path.Combine(PastaVariaveis, "Timer_Variaveis.json");
+
+        // Construtor vazio necessário para desserialização do contexto.
+        public Ambiente()
+        {
+        }
 
         public Ambiente(IInlineInvokeProxy CPH)
         {

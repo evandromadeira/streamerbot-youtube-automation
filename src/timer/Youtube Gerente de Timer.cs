@@ -3,7 +3,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
-// Versão 260913.1545
+// Versão 260922.1505
 public class CPHInline
 {
     public bool AdicionarTempoPorDoacao()
@@ -15,8 +15,7 @@ public class CPHInline
             CPH.TryGetArg("timerTier", out string tier);
             CPH.TryGetArg("timerPontosMeta", out double pontosMeta);
 
-            Ambiente ambiente = new Ambiente();
-            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+            Ambiente ambiente = new Ambiente(CPH);
 
             var timer = ObtemVariaveis<VariaveisTimer>(ambiente.VariaveisTimer);
 
@@ -51,8 +50,8 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_DE_TIMER] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
-            var ambiente = contexto.Ambiente;
+            Evento evento = contexto.Evento;
+            Ambiente ambiente = contexto.Ambiente;
 
             if (!evento.IsMod)
             {
@@ -143,15 +142,14 @@ public class CPHInline
         messageText = (messageText ?? "").Trim();
         int primeiroEspaco = messageText.IndexOf(' ');
 
-        return (primeiroEspaco >= 0 ? messageText.Substring(primeiroEspaco + 1) : "").Trim().ToLower();
+        return (primeiroEspaco >= 0 ? messageText.Substring(primeiroEspaco + 1) : "").Trim().ToLowerInvariant();
     }
 
     public bool IniciarTimer()
     {
         try
         {
-            Ambiente ambiente = new Ambiente();
-            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+            Ambiente ambiente = new Ambiente(CPH);
 
             var timer = ObtemVariaveis<VariaveisTimer>(ambiente.VariaveisTimer);
 
@@ -192,7 +190,7 @@ public class CPHInline
 
     public AcaoTimer DetectarAcao(string entradaUsuario, VariaveisTimer timer)
     {
-        entradaUsuario = (entradaUsuario ?? "").Trim().ToLower();
+        entradaUsuario = (entradaUsuario ?? "").Trim().ToLowerInvariant();
 
         if (ContemComando(entradaUsuario, "+", "adiciona", "soma"))
             return AcaoTimer.Adicionar;
@@ -302,7 +300,7 @@ public class CPHInline
         foreach (var palavra in palavrasChave)
         {
             if (string.IsNullOrEmpty(palavra)) continue;
-            if (parametro.ToLower().Contains(palavra)) return true;
+            if (parametro.ToLowerInvariant().Contains(palavra)) return true;
         }
 
         return false;
@@ -389,9 +387,19 @@ public class CPHInline
 
     public class Ambiente
     {
-        public string PastaRaiz { get; set; }
+        public string PastaRaiz { get; set; } = "";
 
         public string PastaVariaveis => Path.Combine(PastaRaiz, "Variáveis");
         public string VariaveisTimer => Path.Combine(PastaVariaveis, "Timer_Variaveis.json");
+
+        // Construtor vazio necessário para desserialização do contexto.
+        public Ambiente()
+        {
+        }
+
+        public Ambiente(IInlineInvokeProxy CPH)
+        {
+            PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true) ?? "";
+        }
     }
 }

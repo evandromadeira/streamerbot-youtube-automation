@@ -5,7 +5,7 @@ using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260903.1630
+// Atualização 260922.1605
 public class CPHInline
 {
     public bool CadastrarAudio()
@@ -18,8 +18,8 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
-            var ambiente = contexto.Ambiente;
+            Evento evento = contexto.Evento;
+            Ambiente ambiente = contexto.Ambiente;
 
             bool ehDono = !string.IsNullOrEmpty(evento.BroadcastUserId) && evento.UserId == evento.BroadcastUserId;
             if (!evento.IsMod && !ehDono)
@@ -213,11 +213,15 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
-            var ambiente = contexto.Ambiente;
+            Evento evento = contexto.Evento;
+            Ambiente ambiente = contexto.Ambiente;
 
-            string comando = (evento.MessageText ?? "").Trim().Split(' ')[0].ToLower();
-            if (string.IsNullOrEmpty(comando) || !comando.StartsWith("!"))
+            string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (partes.Length == 0)
+                return false;
+
+            string comando = partes[0].ToLowerInvariant();
+            if (!comando.StartsWith("!"))
                 return false;
 
             CPH.SetArgument("buscarAudioComando", comando);
@@ -320,9 +324,18 @@ public class CPHInline
 
     public class Ambiente
     {
-        public string PastaRaiz { get; set; }
-        public string PastaStream { get; set; }
-        public string CaminhoBanco { get; set; }
-        public string PastaAudios { get; set; }
+        public string PastaRaiz { get; set; } = "";
+
+        public string PastaAudios => Path.Combine(PastaRaiz, "Data", "Audios");
+
+        // Construtor vazio necessário para desserialização do contexto.
+        public Ambiente()
+        {
+        }
+
+        public Ambiente(IInlineInvokeProxy CPH)
+        {
+            PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true) ?? "";
+        }
     }
 }

@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260913.1514
+// Atualização 260922.1105
 // Triggers -> Source: OBS Studio          | Type: Streaming Started | Enabled: Yes | Criteria: OBS
 //          -> Source: Youtube > Broadcast | Type: Broadcast Started | Enabled: Yes | Criteria: none
 public class CPHInline
@@ -172,10 +172,15 @@ public class CPHInline
 
     public class Ambiente
     {
-        public string PastaRaiz { get; set; }
+        public string PastaRaiz { get; set; } = "";
 
         public string PastaVariaveis => Path.Combine(PastaRaiz, "Variáveis");
         public string VariaveisTimer => Path.Combine(PastaVariaveis, "Timer_Variaveis.json");
+
+        // Construtor vazio necessário para desserialização do contexto.
+        public Ambiente()
+        {
+        }
 
         public Ambiente(IInlineInvokeProxy CPH)
         {

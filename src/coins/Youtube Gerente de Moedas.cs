@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260903.1600
+// Atualização 260922.1110
 public class CPHInline
 {
     public bool SaldoMoedasUsuario()
@@ -15,7 +15,7 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             string[] partesComando = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
             string mensagem = partesComando.Length > 1 ? partesComando[1].Replace("@", "").Trim() : "";
@@ -72,7 +72,7 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
@@ -203,7 +203,7 @@ public class CPHInline
                     CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
                     return false;
                 }
-                var evento = contexto.Evento;
+                Evento evento = contexto.Evento;
 
                 senderUserName = evento.UserName;
 
@@ -296,7 +296,7 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             int moedasPorMensagem = 10;
             int cooldownMinutos = 10;
@@ -340,7 +340,7 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (partes.Length != 3)

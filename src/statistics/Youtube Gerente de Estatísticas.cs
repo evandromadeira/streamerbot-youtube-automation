@@ -1,7 +1,7 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260904.1140
+// Atualização 260922.1110
 public class CPHInline
 {
     public bool ConsultarPresenca()
@@ -24,7 +24,7 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_DE_ESTATISTICAS] ERRO: contexto inválido.");
                 return false;
             }
-            var evento = contexto.Evento;
+            Evento evento = contexto.Evento;
 
             string mensagem = evento.MessageText ?? "";
             string[] partes = mensagem.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);

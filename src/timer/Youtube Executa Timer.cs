@@ -5,15 +5,14 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Versão 260903.1930
+// Versão 260922.1105
 public class CPHInline
 {
     public bool Execute()
     {
         try
         {
-            Ambiente ambiente = new Ambiente();
-            ambiente.PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true);
+            Ambiente ambiente = new Ambiente(CPH);
 
             Task.Run(async () =>
             {
@@ -125,9 +124,19 @@ public class CPHInline
 
     public class Ambiente
     {
-        public string PastaRaiz { get; set; }
+        public string PastaRaiz { get; set; } = "";
 
         public string PastaVariaveis => Path.Combine(PastaRaiz, "Variáveis");
         public string VariaveisTimer => Path.Combine(PastaVariaveis, "Timer_Variaveis.json");
+
+        // Construtor vazio necessário para desserialização do contexto.
+        public Ambiente()
+        {
+        }
+
+        public Ambiente(IInlineInvokeProxy CPH)
+        {
+            PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true) ?? "";
+        }
     }
 }
