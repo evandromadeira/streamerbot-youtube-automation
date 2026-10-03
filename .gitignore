@@ -10,3 +10,6 @@ todos_codigos.cs
 # Editor
 .vs/
 *.user
+
+# Gerador local de pacotes do Streamer.bot
+/tools/streamerbot/
