@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260922.1105
+// Atualização 261003.1115
 // Triggers -> Source: OBS Studio          | Type: Streaming Started | Enabled: Yes | Criteria: OBS
 //          -> Source: Youtube > Broadcast | Type: Broadcast Started | Enabled: Yes | Criteria: none
 public class CPHInline
@@ -85,13 +85,7 @@ public class CPHInline
 
             CPH.LogInfo($">>> [INICIO_LIVE] Nova transmissão horizontal identificada: '{horizontal.Title}' ({horizontal.Id}).");
 
-            bool resetOk = CPH.RunAction("Reset First Words", false);
-
-            if (!resetOk)
-            {
-                CPH.LogError(">>> [INICIO_LIVE] ERRO: não foi possível iniciar a ação Reset First Words.");
-                return false;
-            }
+            CPH.ResetFirstWords();
 
             if (SubathonEstaAtivo())
             {
