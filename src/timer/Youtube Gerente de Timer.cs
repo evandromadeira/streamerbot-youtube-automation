@@ -3,41 +3,98 @@ using System.IO;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
-// Versão 260922.1505
+// Versão 260930.1930
 public class CPHInline
 {
     public bool AdicionarTempoPorDoacao()
     {
+        string status = "falhou";
+        CPH.SetArgument("timerDoacaoStatus", status);
+        CPH.SetArgument("timerDoacaoErro", "");
+        CPH.SetArgument("timerDoacaoSegundos", 0);
+
         try
         {
             CPH.TryGetArg("timerUsuario", out string usuario);
             CPH.TryGetArg("timerTipoAcao", out string tipoAcao);
             CPH.TryGetArg("timerTier", out string tier);
-            CPH.TryGetArg("timerPontosMeta", out double pontosMeta);
 
             Ambiente ambiente = new Ambiente(CPH);
+            if (string.IsNullOrWhiteSpace(ambiente.PastaRaiz))
+                throw new InvalidOperationException("A variável caminhoPastaStreamerBot não está configurada.");
 
-            var timer = ObtemVariaveis<VariaveisTimer>(ambiente.VariaveisTimer);
-
-            int totalSegundos = (int)Math.Round(pontosMeta * timer.SegundosPorPonto * timer.MultiplicadorDeTempo);
-
-            AtualizarTempoFinal(ambiente.VariaveisTimer, totalSegundos, timer);
-
-            if (timer.SubathonAtivo)
+            var timer = ObterTimerParaDoacao(ambiente.VariaveisTimer);
+            if (timer == null || !timer.SubathonAtivo)
             {
-                ExecutarGerenciaSubathon(usuario, totalSegundos);
+                CPH.SetArgument("timerDoacaoStatus", "ignorado");
+                CPH.LogInfo("[GERENTE_DE_TIMER] Tempo da doação ignorado: configuração ausente ou modo Maratona desativado.");
+                return true;
             }
 
-            CPH.LogInfo($"[GERENTE_DE_TIMER] Doação processada - Usuário: {usuario} | TipoAcao: {tipoAcao} | Tier: {tier} | PontosMeta: {(int)Math.Round(pontosMeta)} | Segundos: {totalSegundos}");
+            if (!CPH.TryGetArg("timerPontosMeta", out double pontosMeta) || double.IsNaN(pontosMeta) || double.IsInfinity(pontosMeta) || pontosMeta < 0)
+                throw new InvalidOperationException("Os pontos da doação estão ausentes ou inválidos.");
+
+            if (double.IsNaN(timer.SegundosPorPonto) || double.IsInfinity(timer.SegundosPorPonto) || timer.SegundosPorPonto < 0 || timer.MultiplicadorDeTempo < 0)
+                throw new InvalidOperationException("A conversão de pontos em tempo está inválida.");
+
+            int totalSegundos = checked((int)Math.Round(pontosMeta * timer.SegundosPorPonto * timer.MultiplicadorDeTempo));
+            CPH.SetArgument("timerDoacaoSegundos", totalSegundos);
+
+            if (timer.Ativo)
+                timer.TempoFinal = timer.TempoFinal.AddSeconds(totalSegundos);
+            else
+                timer.TempoTotal = checked(timer.TempoTotal + totalSegundos);
+
+            string json = JsonConvert.SerializeObject(timer, Formatting.Indented);
+            // Depois de iniciar a escrita, uma exceção pode deixar o arquivo parcialmente alterado.
+            status = "incerto";
+            CPH.SetArgument("timerDoacaoStatus", status);
+            File.WriteAllText(ambiente.VariaveisTimer, json);
+            status = "aplicado";
+            CPH.SetArgument("timerDoacaoStatus", status);
+
+            if (!timer.Ativo)
+                CPH.ObsSetGdiText("Timer", "Timer SB", FormatarTempo(timer.TempoTotal), 0);
+
+            CPH.SetGlobalVar("Subathon_Usuario", usuario, false);
+            CPH.SetGlobalVar("Subathon_TotalSegundos", totalSegundos, false);
+            if (!CPH.RunAction("Youtube Gerencia Subathon", true))
+                throw new InvalidOperationException("O tempo foi salvo, mas a atualização da Maratona não confirmou sucesso.");
+
+            CPH.LogInfo($"[GERENTE_DE_TIMER] Doação processada - Usuário: {usuario} | TipoAcao: {tipoAcao} | Tier: {tier} | PontosMeta: {pontosMeta} | Segundos: {totalSegundos}");
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_DE_TIMER] ERRO CRÍTICO ao adicionar tempo por doação: " + ex.Message);
-            CPH.SendYouTubeMessage("❌ Falha técnica ao processar tempo da doação.", false);
+            CPH.SetArgument("timerDoacaoStatus", status);
+            CPH.SetArgument("timerDoacaoErro", ex.Message);
+            CPH.LogInfo($"[GERENTE_DE_TIMER] Falha ao processar tempo da doação | Status: {status} | Erro: {ex.Message}");
             return false;
         }
 
         return true;
+    }
+
+    private VariaveisTimer ObterTimerParaDoacao(string caminho)
+    {
+        string json;
+        try
+        {
+            json = File.ReadAllText(caminho);
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return null;
+        }
+
+        var timer = JsonConvert.DeserializeObject<VariaveisTimer>(json);
+        if (timer == null)
+            throw new InvalidOperationException("O arquivo de configuração do Timer está vazio ou não contém um objeto válido.");
+
+        return timer;
     }
 
     public bool ProcessarComando()

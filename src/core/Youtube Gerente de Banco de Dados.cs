@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260924.1600
+// Atualização 261003.1020
 // Camada de dados da automação da live: centraliza todo o acesso ao SQLite (YoutubeStream.db)
 public class CPHInline
 {
@@ -808,8 +808,18 @@ public class CPHInline
     // ------------------------------------------------------------------
     public bool AdicionarMoedasUsuario()
     {
+        string creditoStatus = "falhou";
+        bool commitIniciado = false;
+        bool commitConfirmado = false;
+
         try
         {
+            CPH.SetArgument("adicionarCreditoStatus", creditoStatus);
+            CPH.SetArgument("adicionarErro", "");
+            CPH.SetArgument("adicionarDestinatarioId", "");
+            CPH.SetArgument("adicionarDestinatarioNomeExibido", "");
+            CPH.SetArgument("adicionarResultado", "");
+
             CPH.TryGetArg("adicionarOrigem", out string origem);
             CPH.TryGetArg("adicionarUserId", out string userId);
             CPH.TryGetArg("adicionarUserName", out string userName);
@@ -823,6 +833,7 @@ public class CPHInline
             if ((string.IsNullOrEmpty(userId) && string.IsNullOrEmpty(userName)) || quantidadeMoedas <= 0)
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros inválidos para AdicionarMoedasUsuario.");
+                CPH.SetArgument("adicionarErro", "Parâmetros inválidos para adicionar moedas.");
                 CPH.SetArgument("adicionarResultado", "ParametrosInvalidos");
                 return true;
             }
@@ -831,6 +842,7 @@ public class CPHInline
 
             if (!File.Exists(ambiente.CaminhoBanco))
             {
+                CPH.SetArgument("adicionarErro", "Banco de dados não encontrado.");
                 CPH.SetArgument("adicionarResultado", "BancoNaoEncontrado");
                 return true;
             }
@@ -864,6 +876,8 @@ public class CPHInline
                             CPH.LogWarn($">>> [GERENTE_DB] Usuário '{userName}' não encontrado por userId — criando/creditando conta identificada pelo nome.");
                         }
                     }
+
+                    CPH.SetArgument("adicionarDestinatarioId", destinatarioId);
 
                     // Cooldown de atividade de chat: só se aplica à origem "chat_atividade" e quando
                     // o chamador informa um valor > 0, checado na mesma transação do upsert.
@@ -908,18 +922,35 @@ public class CPHInline
 
                         cmd.Parameters.AddWithValue("@broadcastUserId", string.IsNullOrEmpty(broadcastUserId) ? (object)DBNull.Value : broadcastUserId);
                         cmd.Parameters.AddWithValue("@broadcastUserName", (object)broadcastUserName ?? DBNull.Value);
+                        creditoStatus = "incerto";
                         cmd.ExecuteNonQuery();
                     }
 
                     string nomeDestinatario = BuscarUserNamePorId(connection, destinatarioId) ?? userName;
+                    commitIniciado = true;
                     ConfirmarTransacao(connection);
+                    commitConfirmado = true;
+                    creditoStatus = "creditado";
 
+                    CPH.SetArgument("adicionarCreditoStatus", creditoStatus);
                     CPH.SetArgument("adicionarResultado", "Sucesso");
                     CPH.SetArgument("adicionarDestinatarioNomeExibido", nomeDestinatario);
                 }
                 catch
                 {
-                    RollbackTransacao(connection);
+                    if (!commitConfirmado)
+                    {
+                        try
+                        {
+                            RollbackTransacao(connection);
+                            if (!commitIniciado) creditoStatus = "falhou";
+                        }
+                        catch (Exception rollbackEx)
+                        {
+                            creditoStatus = "incerto";
+                            CPH.LogError(">>> [GERENTE_DB] ERRO ao desfazer crédito de moedas: " + rollbackEx.Message);
+                        }
+                    }
                     throw;
                 }
             }
@@ -929,6 +960,8 @@ public class CPHInline
         catch (Exception ex)
         {
             CPH.LogError(">>> [GERENTE_DB] ERRO ao adicionar moedas: " + ex.Message);
+            CPH.SetArgument("adicionarCreditoStatus", creditoStatus);
+            CPH.SetArgument("adicionarErro", ex.Message);
             CPH.SetArgument("adicionarResultado", "Erro");
             return false;
         }
@@ -1630,7 +1663,7 @@ public class CPHInline
     }
 
     // ==================================================================
-    // Youtube Recompensar Doações e Youtube Consultar Meta
+    // Youtube Gerente de Doações e Youtube Consultar Meta
     // ==================================================================
 
     // ------------------------------------------------------------------
@@ -1640,6 +1673,9 @@ public class CPHInline
     {
         try
         {
+            CPH.SetArgument("doacaoDuplicada", false);
+            CPH.SetArgument("doacaoDuplicidadeErro", "");
+
             CPH.TryGetArg("doacaoDupUserId", out string userId);
             CPH.TryGetArg("doacaoDupBroadcastUserId", out string broadcastUserId);
             CPH.TryGetArg("doacaoDupTipoAcao", out string tipoAcao);
@@ -1649,8 +1685,8 @@ public class CPHInline
 
             if (!File.Exists(ambiente.CaminhoBanco))
             {
-                CPH.SetArgument("doacaoDuplicada", false);
-                return true;
+                CPH.SetArgument("doacaoDuplicidadeErro", "Banco de dados não encontrado.");
+                return false;
             }
 
             using (var connection = AbrirConexao(ambiente))
@@ -1683,6 +1719,7 @@ public class CPHInline
         catch (Exception ex)
         {
             CPH.LogError(">>> [GERENTE_DB] ERRO ao checar doação duplicada: " + ex.Message);
+            CPH.SetArgument("doacaoDuplicidadeErro", ex.Message);
             CPH.SetArgument("doacaoDuplicada", false); // O retorno false sinaliza ao chamador que a consulta falhou
             return false;
         }
@@ -1693,8 +1730,14 @@ public class CPHInline
     // ------------------------------------------------------------------
     public bool SalvarDoacao()
     {
+        string registroStatus = "falhou";
+
         try
         {
+            CPH.SetArgument("doacaoRegistroStatus", registroStatus);
+            CPH.SetArgument("doacaoRegistroErro", "");
+            CPH.SetArgument("doacaoRegistroId", 0L);
+
             CPH.TryGetArg("doacaoUserId", out string userId);
             CPH.TryGetArg("doacaoUserName", out string userName);
             CPH.TryGetArg("doacaoTipoAcao", out string tipoAcao);
@@ -1709,6 +1752,16 @@ public class CPHInline
             CPH.TryGetArg("doacaoTier", out string tier);
             CPH.TryGetArg("doacaoBroadcastId", out string broadcastId);
             CPH.TryGetArg("doacaoMessageId", out string messageId);
+            CPH.TryGetArg("doacaoTimestamp", out string timestamp);
+
+            if (string.IsNullOrEmpty(timestamp))
+            {
+                timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            }
+            else if (!DateTime.TryParseExact(timestamp, "yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime dataDoacao))
+            {
+                throw new ArgumentException("doacaoTimestamp deve usar o formato yyyy-MM-dd HH:mm:ss.");
+            }
 
             Ambiente ambiente = new Ambiente(CPH);
 
@@ -1730,11 +1783,19 @@ public class CPHInline
                     cmd.Parameters.AddWithValue("@multiplicador", multiplicador);
                     cmd.Parameters.AddWithValue("@broadcastUserId", broadcastUserId);
                     cmd.Parameters.AddWithValue("@broadcastUserName", broadcastUserName);
-                    cmd.Parameters.AddWithValue("@timestamp", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    cmd.Parameters.AddWithValue("@timestamp", timestamp);
                     cmd.Parameters.AddWithValue("@tier", (object)tier ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@broadcastId", (object)broadcastId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@messageId", (object)messageId ?? DBNull.Value);
+                    registroStatus = "incerto";
                     cmd.ExecuteNonQuery();
+                    registroStatus = "salvo";
+                    CPH.SetArgument("doacaoRegistroStatus", registroStatus);
+                }
+
+                using (var cmdId = new SQLiteCommand("SELECT last_insert_rowid();", connection))
+                {
+                    CPH.SetArgument("doacaoRegistroId", Convert.ToInt64(cmdId.ExecuteScalar()));
                 }
             }
 
@@ -1743,6 +1804,8 @@ public class CPHInline
         catch (Exception ex)
         {
             CPH.LogError(">>> [GERENTE_DB] ERRO ao salvar doação: " + ex.Message);
+            CPH.SetArgument("doacaoRegistroStatus", registroStatus);
+            CPH.SetArgument("doacaoRegistroErro", ex.Message);
             return false;
         }
     }
@@ -1754,6 +1817,7 @@ public class CPHInline
     {
         try
         {
+            CPH.SetArgument("metaConsultaSucesso", false);
             CPH.TryGetArg("metaBroadcastUserName", out string broadcastUserName);
             if (string.IsNullOrEmpty(broadcastUserName))
             {
@@ -1767,7 +1831,8 @@ public class CPHInline
             if (!File.Exists(ambiente.CaminhoBanco))
             {
                 CPH.SetArgument("metaProgressoMensal", 0);
-                return true;
+                CPH.LogError(">>> [GERENTE_DB] ERRO ao consultar meta: banco de dados não encontrado em " + ambiente.CaminhoBanco);
+                return false;
             }
 
             using (var connection = AbrirConexao(ambiente))
@@ -1785,6 +1850,7 @@ public class CPHInline
                 }
             }
 
+            CPH.SetArgument("metaConsultaSucesso", true);
             return true;
         }
         catch (Exception ex)

@@ -1,7 +1,7 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260922.1110
+// Atualização 261003.1020
 public class CPHInline
 {
     public bool Execute()
@@ -17,9 +17,35 @@ public class CPHInline
 
             Evento evento = contexto.Evento;
 
-            CPH.SetArgument("metaBroadcastUserName", evento.BroadcastUserName);
-            CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ObterProgressoMeta");
-            CPH.TryGetArg("metaProgressoMensal", out int progressoMensal);
+            int progressoMensal = 0;
+            bool consultou = false;
+            for (int tentativa = 1; tentativa <= 3; tentativa++)
+            {
+                CPH.SetArgument("metaBroadcastUserName", evento.BroadcastUserName);
+                CPH.SetArgument("metaConsultaSucesso", false);
+                CPH.SetArgument("metaProgressoMensal", null);
+                try
+                {
+                    bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ObterProgressoMeta");
+                    CPH.TryGetArg("metaConsultaSucesso", out bool sucesso);
+                    consultou = executou && sucesso && CPH.TryGetArg("metaProgressoMensal", out progressoMensal);
+                }
+                catch (Exception ex)
+                {
+                    CPH.LogWarn($">>> [META] Tentativa {tentativa}/3 lançou erro: {ex.Message}");
+                }
+
+                if (consultou) break;
+                CPH.LogWarn($">>> [META] Consulta sem sucesso: canal '{evento.BroadcastUserName}', tentativa {tentativa}/3.");
+                if (tentativa < 3) CPH.Wait(500);
+            }
+
+            if (!consultou)
+            {
+                CPH.LogError($">>> [META] Consulta da meta falhou após 3 tentativas para o canal '{evento.BroadcastUserName}'.");
+                CPH.SendYouTubeMessage("❌ Não foi possível consultar a meta. Tente novamente.", false);
+                return false;
+            }
 
             string mensagem = MontarMensagem(evento.BroadcastUserName, progressoMensal);
 

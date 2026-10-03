@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260922.1110
+// Atualização 261003.0945
 public class CPHInline
 {
     public bool SaldoMoedasUsuario()
@@ -163,11 +163,20 @@ public class CPHInline
 
     public bool AdicionarMoedasUsuario()
     {
+        string origem = "";
+        bool bancoChamado = false;
+
         try
         {
-            CPH.TryGetArg("origem", out string origem);
+            CPH.TryGetArg("origem", out origem);
 
             origem = string.IsNullOrEmpty(origem) ? "chat_adicionar" : origem;
+
+            CPH.SetArgument("adicionarCreditoStatus", "falhou");
+            CPH.SetArgument("adicionarErro", "");
+            CPH.SetArgument("adicionarResultado", "");
+            CPH.SetArgument("adicionarDestinatarioId", "");
+            CPH.SetArgument("adicionarDestinatarioNomeExibido", "");
 
             string targetUserId = "";
             string targetUserName = "";
@@ -186,6 +195,8 @@ public class CPHInline
                 if ((string.IsNullOrEmpty(targetUserId) && string.IsNullOrEmpty(targetUserName)) || coinsToAdd <= 0)
                 {
                     CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: Dados de doação inválidos.");
+                    CPH.SetArgument("adicionarErro", "Usuário ou quantidade de moedas inválidos.");
+                    CPH.SetArgument("adicionarResultado", "ParametrosInvalidos");
                     return false;
                 }
 
@@ -245,15 +256,21 @@ public class CPHInline
             CPH.SetArgument("adicionarQuantidade", coinsToAdd);
             CPH.SetArgument("adicionarCooldownMinutos", cooldownMinutos);
 
+            CPH.SetArgument("adicionarCreditoStatus", "incerto");
+            bancoChamado = true;
             bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "AdicionarMoedasUsuario");
+            CPH.TryGetArg("adicionarCreditoStatus", out string creditoStatus);
+
             if (!executou)
             {
                 CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: falha ao adicionar moedas por comando.");
-                CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
-                return false;
+                if (origem != "doacao" && origem != "importacao" && origem != "moedas_surpresa") CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
+                return (origem == "doacao" || origem == "importacao" || origem == "moedas_surpresa") && creditoStatus == "creditado";
             }
 
             CPH.TryGetArg("adicionarResultado", out string resultado);
+
+            if (origem == "doacao" || origem == "importacao" || origem == "moedas_surpresa") return creditoStatus == "creditado";
 
             if (origem == "chat_adicionar")
             {
@@ -281,8 +298,13 @@ public class CPHInline
         catch (Exception ex)
         {
             CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao adicionar moedas: " + ex.Message);
-            CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
-            return false;
+            CPH.TryGetArg("adicionarCreditoStatus", out string creditoStatus);
+            if (!bancoChamado) creditoStatus = "falhou";
+            else if (creditoStatus != "creditado" && creditoStatus != "falhou") creditoStatus = "incerto";
+            CPH.SetArgument("adicionarCreditoStatus", creditoStatus);
+            CPH.SetArgument("adicionarErro", ex.Message);
+            if (origem != "doacao" && origem != "importacao" && origem != "moedas_surpresa") CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
+            return (origem == "doacao" || origem == "importacao" || origem == "moedas_surpresa") && creditoStatus == "creditado";
         }
     }
 

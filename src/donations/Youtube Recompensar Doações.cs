@@ -1,208 +1,94 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using Newtonsoft.Json;
 
-// Atualização 260922.1105
-// Triggers -> Source: Youtube > Chat       | Type: Super Chat       | Enabled: Yes | Criteria: Any
-//          -> Source: Youtube > Chat       | Type: Super Sticker    | Enabled: Yes | Criteria: Any
-//          -> Source: Youtube > Chat       | Type: Jewels Gifted    | Enabled: Yes | Criteria: Any
-//          -> Source: Youtube > General    | Type: New Sponsor      | Enabled: Yes | Criteria: none
-//          -> Source: Youtube > Membership | Type: Member Milestone | Enabled: Yes | Criteria: none
-//          -> Source: Youtube > Membership | Type: Membership Gift  | Enabled: Yes | Criteria: none
-//          -> Source: StreamElements       | Type: Tip              | Enabled: Yes | Criteria: Any
+// Atualização 261002.0945
+// Sem triggers. Chamado por Youtube Gerente de Doações via ExecuteMethod.
+// Configure o Name de Execute C# Code como Youtube Recompensar Doações.
 public class CPHInline
 {
-    public bool Execute()
+    public bool RecompensarDoacao()
     {
-        Evento evento = new Evento(CPH);
-        Random rnd = new Random();
+        bool chamouCredito = false;
+        CPH.SetArgument("doacaoMoedasCalculadas", 0);
+        CPH.SetArgument("doacaoMoedaGanha", 0);
+        CPH.SetArgument("doacaoMultiplicador", 0);
+        CPH.SetArgument("doacaoCreditoStatus", "falhou");
+        CPH.SetArgument("doacaoCreditoErro", "");
+        CPH.SetArgument("adicionarCreditoStatus", "incerto");
+        CPH.SetArgument("adicionarResultado", "");
+        CPH.SetArgument("adicionarErro", "");
+        CPH.SetArgument("adicionarDestinatarioId", "");
 
-        int multiplicador = rnd.Next(50, 1001);
-        int moedaGanha = 0;
-
-        double valorEmBRL = 0;
-        double pontosMeta = 0;
-
-        // ------------------------------------------------------------------
-        // Super Chat / Super Sticker
-        // ------------------------------------------------------------------
-        if (evento.TipoAcao == "Super Chat" || evento.TipoAcao == "Super Sticker")
-        {
-            // 0.692307 Multiplicador para Subathon onde R$ 2,00 = 3 minutos
-            double valorConversao = 0.692307;
-            valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
-            moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
-            pontosMeta = valorConversao * valorEmBRL * 100;
-        }
-        // ------------------------------------------------------------------
-        // Jewels Gifted
-        // ------------------------------------------------------------------
-        else if (evento.TipoAcao == "Jewels Gifted")
-        {
-            valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
-            moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
-            pontosMeta = valorEmBRL * 100;
-        }
-        // ------------------------------------------------------------------
-        // New Sponsor (novo membro)
-        // ------------------------------------------------------------------
-        else if (evento.TipoAcao == "New Sponsor" || evento.TipoAcao == "Member Milestone")
-        {
-            if (EventoDuplicado(evento))
-            {
-                CPH.LogInfo($">>> [RECOMPENSAR_DOAÇÕES] Evento '{evento.TipoAcao}' duplicado ignorado: {evento.Usuario} / {evento.Tier}");
-                return true;
-            }
-
-            // 0.693174 Multiplicador para Subathon onde R$ 7,99 = 12 minutos
-            double valorConversao = 0.693174;
-            valorEmBRL = evento.Valor;
-            moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
-            pontosMeta = valorConversao * valorEmBRL * 100;
-        }
-        // ------------------------------------------------------------------
-        // Membership Gift (presente de membership)
-        // ------------------------------------------------------------------
-        else if (evento.TipoAcao == "Membership Gift")
-        {
-            // 0.693174 Multiplicador para Subathon onde R$ 7,99 = 12 minutos
-            double valorConversao = 0.693174;
-            valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
-            moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
-            pontosMeta = valorConversao * valorEmBRL * 100;
-        }
-        // ------------------------------------------------------------------
-        // Tip via LivePix (StreamElements)
-        // ------------------------------------------------------------------
-        else if (evento.TipoAcao == "Tip")
-        {
-            // 0.923076 Multiplicador para Subathon onde R$ 1,00 = 2 minutos
-            double valorConversao = 0.923076;
-            valorEmBRL = ConverterParaBRL(evento.Valor, evento.CurrencyCode);
-            moedaGanha = (int)Math.Round(multiplicador * valorEmBRL * 20);
-            pontosMeta = valorConversao * valorEmBRL * 100;
-        }
-        else
-        {
-            CPH.LogWarn($">>> [RECOMPENSAR_DOAÇÕES] Tipo de ação não tratado: '{evento.TipoAcao}'. Ignorado.");
-            return false;
-        }
-
-        int pontosMetaInt = (int)Math.Round(pontosMeta);
-        if (pontosMeta <= 0 && moedaGanha <= 0)
-        {
-            CPH.LogWarn(">>> [RECOMPENSAR_DOAÇÕES] Valores calculados inválidos, ignorando.");
-            return false;
-        }
-
-        CPH.SetArgument("origem", "doacao");
-        CPH.SetArgument("targetUserId", evento.UsuarioId);
-        CPH.SetArgument("targetUserName", evento.Usuario);
-        CPH.SetArgument("coinsToAdd", moedaGanha);
-        CPH.SetArgument("broadcastUserId", evento.BroadcastUserId);
-        CPH.SetArgument("broadcastUserName", evento.BroadcastUserName);
-
-        bool executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
-        if (!executou)
-        {
-            CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
-            return false;
-        }
-
-        if (SubathonEstaAtivo())
-        {
-            CPH.SetArgument("timerUsuario", evento.Usuario);
-            CPH.SetArgument("timerTipoAcao", evento.TipoAcao);
-            CPH.SetArgument("timerTier", evento.Tier ?? "");
-            CPH.SetArgument("timerPontosMeta", pontosMeta);
-            CPH.ExecuteMethod("Youtube Gerente de Timer", "AdicionarTempoPorDoacao");
-        }
-
-        // Insere a transação na tabela YoutubeDoacoes
-        InserirDoacao(evento, pontosMetaInt, moedaGanha, multiplicador, valorEmBRL);
-
-        // Mensagem de agradecimento no chat
-        string mensagem = MontarMensagem(evento, pontosMetaInt, moedaGanha, multiplicador, valorEmBRL);
-        if (mensagem.Length > 200)
-            mensagem = mensagem.Substring(0, 197) + "...";
-
-        CPH.SendYouTubeMessage(mensagem, true);
-
-        return true;
-    }
-
-    private double ConverterParaBRL(double valor, string moeda)
-    {
-        // Taxas de conversão manuais para BRL. Ajustar periodicamente conforme cotação real.
-        var taxasConversaoParaBRL = new Dictionary<string, double>
-        {
-            { "BRL", 1.00 },
-            { "USD", 5.00 },
-            { "EUR", 5.80 },
-            { "GBP", 6.80 }
-        };
-        
-        double taxaCambio = taxasConversaoParaBRL.TryGetValue(moeda, out double taxaEncontrada) ? taxaEncontrada : 1.0;
-        if (taxaCambio == 1.0 && moeda != "BRL")
-        {
-            CPH.LogWarn($">>> [RECOMPENSAR_DOAÇÕES] Moeda '{moeda}' sem taxa cadastrada, usando 1:1 como fallback.");
-        }
-
-        return valor * taxaCambio;
-    }
-
-    private bool SubathonEstaAtivo()
-    {
         try
         {
-            Ambiente ambiente = new Ambiente(CPH);
+            if (!CPH.TryGetArg("doacaoValorBRL", out double valorEmBRL) || double.IsNaN(valorEmBRL) || double.IsInfinity(valorEmBRL) || valorEmBRL <= 0)
+                throw new ArgumentException("Valor em BRL inválido para calcular a recompensa.");
 
-            if (!File.Exists(ambiente.VariaveisTimer)) return false;
+            int multiplicador = new Random().Next(50, 1001);
+            CPH.SetArgument("doacaoMultiplicador", multiplicador);
+            double calculo = Math.Round(multiplicador * valorEmBRL * 20);
+            if (calculo < 0 || calculo > int.MaxValue)
+                throw new ArgumentException("Quantidade calculada fora do intervalo de moedas suportado: " + calculo);
 
-            string json = File.ReadAllText(ambiente.VariaveisTimer);
-            var timer = JsonConvert.DeserializeObject<VariaveisTimer>(json);
+            int moedaGanha = (int)calculo;
+            CPH.SetArgument("doacaoMoedasCalculadas", moedaGanha);
+            if (moedaGanha == 0)
+                throw new ArgumentException("O valor da doação resultou em zero moedas após o arredondamento.");
 
-            return timer?.SubathonAtivo ?? false;
+            CPH.TryGetArg("doacaoUserId", out string userId);
+            CPH.TryGetArg("doacaoUserName", out string userName);
+            CPH.TryGetArg("doacaoBroadcastUserId", out string broadcastUserId);
+            CPH.TryGetArg("doacaoBroadcastUserName", out string broadcastUserName);
+            CPH.SetArgument("origem", "doacao");
+            CPH.SetArgument("targetUserId", userId);
+            CPH.SetArgument("targetUserName", userName);
+            CPH.SetArgument("coinsToAdd", moedaGanha);
+            CPH.SetArgument("broadcastUserId", broadcastUserId);
+            CPH.SetArgument("broadcastUserName", broadcastUserName);
+
+            chamouCredito = true;
+            bool executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
+            CPH.TryGetArg("adicionarCreditoStatus", out string status);
+            CPH.TryGetArg("adicionarResultado", out string resultado);
+            CPH.TryGetArg("adicionarErro", out string erro);
+            bool creditou = status == "creditado";
+            CPH.SetArgument("doacaoCreditoStatus", creditou ? "creditado" : (status == "falhou" ? "falhou" : "incerto"));
+            CPH.SetArgument("doacaoMoedaGanha", creditou ? moedaGanha : 0);
+            if (string.IsNullOrEmpty(erro) && (!creditou || !executou)) erro = $"Crédito: retorno={executou}, resultado={resultado}, status={status}.";
+            CPH.SetArgument("doacaoCreditoErro", erro ?? "");
+            // Uma falha posterior ao COMMIT não desfaz o crédito confirmado, mas precisa aparecer no log.
+            return creditou && executou && string.IsNullOrEmpty(erro);
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [RECOMPENSAR_DOAÇÕES] Erro ao verificar SubathonAtivo: {ex.Message}");
+            CPH.TryGetArg("adicionarCreditoStatus", out string status);
+            CPH.TryGetArg("doacaoMoedasCalculadas", out int moedasCalculadas);
+            bool creditou = chamouCredito && status == "creditado";
+            CPH.SetArgument("doacaoCreditoStatus", creditou ? "creditado" : (!chamouCredito || status == "falhou" ? "falhou" : "incerto"));
+            CPH.SetArgument("doacaoMoedaGanha", creditou ? moedasCalculadas : 0);
+            CPH.SetArgument("doacaoCreditoErro", ex.GetType().Name + ": " + ex.Message);
             return false;
         }
     }
 
-    private class VariaveisTimer
+    public bool EnviarAgradecimento()
     {
-        public bool SubathonAtivo { get; set; }
-    }
+        // Chamado uma única vez após as tentativas de recompensa, registro e Timer.
+        CPH.TryGetArg("doacaoTipoAcao", out string tipoAcao);
+        CPH.TryGetArg("doacaoUserName", out string usuario);
+        CPH.TryGetArg("doacaoTier", out string tier);
+        CPH.TryGetArg("doacaoQuantidadeGifts", out int quantidadeGifts);
+        CPH.TryGetArg("doacaoJewelsAmount", out double jewelsAmount);
+        CPH.TryGetArg("doacaoMoedaOrigem", out string moeda);
+        CPH.TryGetArg("doacaoValorOriginal", out double valorOriginal);
+        CPH.TryGetArg("doacaoValorBRL", out double valorEmBRL);
+        CPH.TryGetArg("doacaoPontosMeta", out int pontosMetaInt);
+        CPH.TryGetArg("doacaoMoedaGanha", out int moedaGanha);
+        CPH.TryGetArg("doacaoMultiplicador", out int multiplicador);
+        CPH.TryGetArg("doacaoCreditoStatus", out string statusCredito);
+        CPH.TryGetArg("doacaoRegistroStatus", out string statusRegistro);
 
-    private bool EventoDuplicado(Evento evento)
-    {
-        try
-        {
-            CPH.SetArgument("doacaoDupUserId", evento.UsuarioId);
-            CPH.SetArgument("doacaoDupBroadcastUserId", evento.BroadcastUserId);
-            CPH.SetArgument("doacaoDupTipoAcao", evento.TipoAcao);
-            CPH.SetArgument("doacaoDupTier", evento.Tier ?? "");
-
-            CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "VerificarDoacaoDuplicada");
-
-            CPH.TryGetArg("doacaoDuplicada", out bool duplicado);
-
-            return duplicado;
-        }
-        catch (Exception ex)
-        {
-            CPH.LogError($">>> [RECOMPENSAR_DOAÇÕES] Erro ao checar duplicidade: {ex.Message}");
-
-            return false; // falha na checagem não deve bloquear uma doação real
-        }
-    }
-
-    private string MontarMensagem(Evento evento, int pontosMetaInt, int moedaGanha, int multiplicador, double valorEmBRL)
-    {
-        var (nomeEvento, artigo) = evento.TipoAcao switch
+        var (nomeEvento, artigo) = tipoAcao switch
         {
             "Super Chat"        => ("Super Chat", "pelo"),
             "Super Sticker"     => ("Super Sticker", "pelo"),
@@ -213,186 +99,24 @@ public class CPHInline
             "Tip"               => ("Contribuição", "pela"),
             _                   => ("Contribuição", "pela")
         };
-        string detalheTier = (evento.IsMembershipGift || evento.IsNewSponsor || evento.IsMemberMilestone) && !string.IsNullOrEmpty(evento.Tier)
-            ? $" ({evento.Tier}" + (evento.QuantidadeGifts > 1
-                ? $" x{evento.QuantidadeGifts})"
-                : ")")
-            : "";
-        string simboloMoeda = ObterSimboloMoeda(evento.CurrencyCode);
-        string agradecimento = evento.IsJewels
-            ? $"Obrigado {artigo} {evento.JewelsAmount:N0} {nomeEvento}"
-            : $"Obrigado {artigo} {nomeEvento}{detalheTier} de {simboloMoeda} {evento.Valor:F2}";
-        string moedasCalculo = $"({multiplicador:N0} Multiplicador x {valorEmBRL:0.00#} x 20)";
-        return $"{agradecimento}, @{evento.Usuario}! " + $"Você contribuiu com {pontosMetaInt:N0} Pontos para as metas " + $"e ganhou {moedaGanha:N0} Moedas! {moedasCalculo}";
+        bool membro = tipoAcao == "New Sponsor" || tipoAcao == "Member Milestone" || tipoAcao == "Membership Gift";
+        string detalheTier = membro && !string.IsNullOrEmpty(tier) ? $" ({tier}" + (quantidadeGifts > 1 ? $" x{quantidadeGifts})" : ")") : "";
+        string agradecimento = tipoAcao == "Jewels Gifted" ? $"Obrigado {artigo} {jewelsAmount:N0} {nomeEvento}" : $"Obrigado {artigo} {nomeEvento}{detalheTier} de {ObterSimboloMoeda(moeda)} {valorOriginal:F2}";
+        string mensagem = $"{agradecimento}, @{usuario}!";
+        bool creditou = statusCredito == "creditado";
+        bool registrou = statusRegistro == "salvo";
+        if (registrou) mensagem += $" Você contribuiu com {pontosMetaInt:N0} Pontos para as metas";
+        if (creditou) mensagem += (registrou ? " e ganhou " : " Você ganhou ") + $"{moedaGanha:N0} Moedas! ({multiplicador:N0} Multiplicador x {valorEmBRL:0.00#} x 20)";
+        else if (registrou) mensagem += "!";
+        if (mensagem.Length > 200) mensagem = mensagem.Substring(0, 197) + "...";
+
+        CPH.SendYouTubeMessage(mensagem, true);
+        return true;
     }
 
     private string ObterSimboloMoeda(string moeda)
     {
-        var simbolosMoeda = new Dictionary<string, string>
-        {
-            { "BRL", "R$" },
-            { "USD", "U$" },
-            { "GBP", "£" },
-            { "EUR", "€" }
-        };
-        return simbolosMoeda.TryGetValue(moeda, out string simbolo) ? simbolo : moeda; // fallback: mostra o código (ex: "JPY") se a moeda não estiver na lista
-    }
-
-    private void InserirDoacao(Evento evento, int pontosMetaInt, int moedaGanha, int multiplicador, double valorEmBRL)
-    {
-        CPH.SetArgument("doacaoUserId", evento.UsuarioId);
-        CPH.SetArgument("doacaoUserName", evento.Usuario);
-        CPH.SetArgument("doacaoTipoAcao", evento.TipoAcao);
-        CPH.SetArgument("doacaoValorOriginal", evento.Valor);
-        CPH.SetArgument("doacaoMoedaOrigem", evento.CurrencyCode ?? "BRL");
-        CPH.SetArgument("doacaoValorBRL", valorEmBRL);
-        CPH.SetArgument("doacaoPontosMeta", pontosMetaInt);
-        CPH.SetArgument("doacaoMoedaGanha", moedaGanha);
-        CPH.SetArgument("doacaoMultiplicador", multiplicador);
-        CPH.SetArgument("doacaoBroadcastUserId", evento.BroadcastUserId);
-        CPH.SetArgument("doacaoBroadcastUserName", evento.BroadcastUserName);
-        CPH.SetArgument("doacaoTier", evento.Tier);
-        CPH.SetArgument("doacaoBroadcastId", evento.BroadcastId);
-        CPH.SetArgument("doacaoMessageId", evento.MessageId);
-
-        bool salvou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SalvarDoacao");
-        if (!salvou)
-        {
-            CPH.LogError($">>> [RECOMPENSAR_DOAÇÕES] Erro ao inserir doação (usuário: {evento.Usuario}).");
-        }
-    }
-
-    public class Evento
-    {
-        public bool IsJewels { get; }
-        public bool IsNewSponsor { get; }
-        public bool IsMemberMilestone { get; }
-        public bool IsMembershipGift { get; }
-        public bool IsTipLivePix { get; }
-
-        public string Usuario { get; }
-        public string UsuarioId { get; }
-        public string TipoAcao { get; }
-        public string CurrencyCode { get; }
-        public string BroadcastId { get; }
-        public string BroadcastUserId { get; }
-        public string BroadcastUserName { get; }
-        public string MessageId { get; }
-        public string Tier { get; }
-
-        public double Valor { get; }
-        public double JewelsAmount { get; }
-
-        public int QuantidadeGifts { get; }
-
-        public Evento(IInlineInvokeProxy CPH)
-        {
-            // Campos nativos do YouTube
-            CPH.TryGetArg("user", out string usuario);
-            CPH.TryGetArg("userId", out string usuarioId);
-            CPH.TryGetArg("microAmount", out long microAmount);
-            CPH.TryGetArg("currencyCode", out string currencyCode);
-            CPH.TryGetArg("broadcast.id", out string broadcastId);
-            CPH.TryGetArg("broadcastUserId", out string broadcastUserId);
-            CPH.TryGetArg("broadcastUserName", out string broadcastUserName);
-            CPH.TryGetArg("triggerName", out string tipoAcao);
-            CPH.TryGetArg("messageId", out string messageId);
-
-            // Campos exclusivos do Jewels Gifted
-            CPH.TryGetArg("gift.jewelsAmount", out double jewelsAmount);
-
-            // Campos exclusivos do New Sponsor (YouTube não informa valor em dinheiro, só o levelName)
-            CPH.TryGetArg("levelName", out string levelName);
-
-            // Campos exclusivos do Membership Gift (YouTube não informa valor em dinheiro, só o tier)
-            CPH.TryGetArg("tier", out string tier);
-            CPH.TryGetArg("count", out int count);
-
-            // Campos exclusivos do Tip via LivePix (StreamElements)
-            CPH.TryGetArg("tipUsername", out string tipUsername);
-            CPH.TryGetArg("tipAmount", out double tipAmount);
-            CPH.TryGetArg("tipCurrency", out string tipCurrency);
-
-            string usuarioEmissao = CPH.GetGlobalVar<string>("usuarioEmissao", true);
-
-            TipoAcao = tipoAcao;
-            IsJewels = tipoAcao == "Jewels Gifted";
-            IsNewSponsor = tipoAcao == "New Sponsor";
-            IsMemberMilestone = tipoAcao == "Member Milestone";
-            IsMembershipGift = tipoAcao == "Membership Gift";
-            IsTipLivePix = tipoAcao == "Tip";
-            JewelsAmount = jewelsAmount;
-            QuantidadeGifts = count > 0 ? count : 1;
-            Usuario = IsTipLivePix ? tipUsername : usuario;
-            UsuarioId = IsTipLivePix ? "" : usuarioId;
-            BroadcastId = broadcastId;
-            BroadcastUserId = IsTipLivePix ? "" : broadcastUserId;
-            BroadcastUserName = IsTipLivePix ? (string.IsNullOrEmpty(usuarioEmissao) ? "YOUTUBE" : usuarioEmissao) : (string.IsNullOrEmpty(broadcastUserName) ? "YOUTUBE" : broadcastUserName);
-            MessageId = messageId;
-            Tier = IsNewSponsor || IsMemberMilestone ? levelName : (IsMembershipGift ? tier : null);
-
-            // Define o valor com base na ação correta
-            if (IsJewels)
-            {
-                Valor = JewelsAmount / 200; // 2 Jóias = 0,01 Dólar
-                CurrencyCode = "USD";
-            }
-            else if (IsNewSponsor || IsMemberMilestone)
-            {
-                Valor = ObterValorTier(Tier);
-                CurrencyCode = "BRL";
-            }
-            else if (IsMembershipGift)
-            {
-                Valor = ObterValorTier(Tier) * QuantidadeGifts;
-                CurrencyCode = "BRL";
-            }
-            else if (IsTipLivePix)
-            {
-                Valor = tipAmount;
-                CurrencyCode = tipCurrency;
-            }
-            else
-            {
-                Valor = microAmount / 1000000.0;
-                CurrencyCode = currencyCode;
-            }
-        }
-
-        // Tabela de preços das membros (tiers de membership do canal).
-        private static double ObterValorTier(string tier)
-        {
-            var precosTier = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
-            {
-                { "Tulipa Bronze", 7.99 },
-                { "Tulipa Prata", 11.99 },
-                { "Tulipa Ouro", 15.99 },
-                { "Tulipa Platina", 23.99 },
-                { "Ferro", 7.99 },
-                { "Diamante", 11.99 },
-                { "Netherite", 15.99 },
-                { "Suprema", 23.99 }
-            };
-
-            return precosTier.TryGetValue(tier ?? "", out double preco) ? preco : 0;
-        }
-    }
-
-    public class Ambiente
-    {
-        public string PastaRaiz { get; set; } = "";
-
-        public string PastaVariaveis => Path.Combine(PastaRaiz, "Variáveis");
-        public string VariaveisTimer => Path.Combine(PastaVariaveis, "Timer_Variaveis.json");
-
-        // Construtor vazio necessário para desserialização do contexto.
-        public Ambiente()
-        {
-        }
-
-        public Ambiente(IInlineInvokeProxy CPH)
-        {
-            PastaRaiz = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true) ?? "";
-        }
+        var simbolos = new Dictionary<string, string> { { "BRL", "R$" }, { "USD", "U$" }, { "GBP", "£" }, { "EUR", "€" } };
+        return moeda != null && simbolos.TryGetValue(moeda, out string simbolo) ? simbolo : moeda;
     }
 }
