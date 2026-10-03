@@ -1,7 +1,7 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260922.1110
+// Atualização 261003.1010
 public class CPHInline
 {
     private static readonly object moedasSurpresaLock = new object();
@@ -28,19 +28,19 @@ public class CPHInline
                 // Travamos para garantir que só uma execução processe por vez.
                 lock (moedasSurpresaLock)
                 {
+                    // Confere a rodada novamente depois de obter o bloqueio.
+                    if (CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true) != palavraSurpresa) return true;
+
                     // Evita que o mesmo espectador ganhe mais de uma vez na mesma rodada
                     var x = CPH.GetGlobalVar<int>("moedasSurpresaGanhadoresCount", true);
                     string listaGanhadores = CPH.GetGlobalVar<string>("moedasSurpresaListaGanhadores", true) ?? "";
-                    string buscaId = $"|{evento.UserId}|";
+                    string buscaId = $"|{(string.IsNullOrEmpty(evento.UserId) ? evento.UserName : evento.UserId)}|";
+                    if (x >= 3) return true;
 
                     if (listaGanhadores.Contains(buscaId))
                     {
                         return true; // Ignora se ele já ganhou nesta rodada
                     }
-
-                    // Adiciona o ID do usuário à lista de ganhadores temporária
-                    listaGanhadores += buscaId;
-                    CPH.SetGlobalVar("moedasSurpresaListaGanhadores", listaGanhadores, true);
 
                     // Calcula o prêmio base com base na posição do ganhador (x)
                     int moedasBase = (int)(1000 / Math.Pow(2, x));
@@ -59,13 +59,55 @@ public class CPHInline
                     CPH.SetArgument("broadcastUserId", evento.BroadcastUserId);
                     CPH.SetArgument("broadcastUserName", evento.BroadcastUserName);
 
-                    bool executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
-                    if (!executou)
+                    string operacaoId = Guid.NewGuid().ToString("D");
+                    CPH.SetArgument("adicionarCreditoStatus", "incerto");
+                    CPH.SetArgument("adicionarErro", "");
+                    CPH.SetArgument("adicionarDestinatarioId", "");
+                    // Reserva antes da chamada. Uma exceção não pode permitir crédito duplicado.
+                    CPH.SetGlobalVar("moedasSurpresaListaGanhadores", listaGanhadores + buscaId, true);
+                    string erro = "";
+                    bool executou = false;
+                    try
                     {
-                        CPH.LogError($">>> [COMPARA_PALAVRA] ERRO CRÍTICO: Falha ao adicionar moedas para @{evento.UserName}.");
-                        return false;
+                        executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
+                    }
+                    catch (Exception ex)
+                    {
+                        erro = ex.Message;
+                    }
+                    CPH.TryGetArg("adicionarCreditoStatus", out string creditoStatus);
+                    CPH.TryGetArg("adicionarErro", out string erroCredito);
+                    CPH.TryGetArg("adicionarDestinatarioId", out string destinatarioId);
+                    bool confirmado = creditoStatus == "creditado";
+                    bool falhou = creditoStatus == "falhou";
+                    if (!confirmado && !falhou) creditoStatus = "incerto";
+
+                    if (falhou)
+                    {
+                        // Não houve crédito: libera o participante e mantém a posição disponível.
+                        CPH.SetGlobalVar("moedasSurpresaListaGanhadores", listaGanhadores, true);
+                    }
+                    else
+                    {
+                        // Confirmado ou incerto: reserva a posição antes de qualquer mensagem.
+                        CPH.SetGlobalVar("moedasSurpresaGanhadoresCount", x + 1, true);
+                        if (x + 1 >= 3)
+                        {
+                            CPH.UnsetGlobalVar("moedasSurpresaPalavra", true);
+                            CPH.UnsetGlobalVar("moedasSurpresaGanhadoresCount", true);
+                            CPH.UnsetGlobalVar("moedasSurpresaListaGanhadores", true);
+                        }
                     }
 
+                    if (!confirmado || !executou || !string.IsNullOrEmpty(erroCredito))
+                    {
+                        CPH.LogError(">>> [COMPARA_PALAVRA] RECUPERACAO_MANUAL " + JsonConvert.SerializeObject(new { operacaoId, timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), origem = "moedas_surpresa", pastaStreamerBot = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true), evento.UserId, evento.UserName, evento.BroadcastUserId, evento.BroadcastUserName, destinatarioId, palavraSurpresa, posicao = x + 1, quantidade = moedasFinais, creditoStatus, erro, erroCredito, orientacao = falhou ? "Crédito não realizado; nova tentativa permitida nesta rodada. Confira tentativas posteriores antes de qualquer ajuste manual." : "Posição reservada. Confira o banco antes de qualquer ajuste; não repetir crédito confirmado ou incerto." }));
+                    }
+                    if (!confirmado)
+                    {
+                        Avisar(falhou ? $"❌ @{evento.UserName}, não foi possível creditar o prêmio. Tente a palavra novamente enquanto a rodada estiver aberta." : $"⚠ @{evento.UserName}, crédito do prêmio incerto. Posição reservada; moderação, confira o log e o banco antes de adicionar moedas.");
+                        return false;
+                    }
                     // Envia a mensagem comemorativa no chat destacando a posição e o bônus
                     string posicaoTexto = x switch
                     {
@@ -82,20 +124,7 @@ public class CPHInline
                     };
 
                     string mensagemSucesso = $"{posicaoTexto}: @{evento.UserName} digitou rápido e ganhou {moedasFinais:N0} Moedas!{detalheCargo}";
-                    CPH.SendYouTubeMessage(mensagemSucesso, false);
-
-                    // Incrementa o contador de ganhadores no banco de memória do bot
-                    CPH.SetGlobalVar("moedasSurpresaGanhadoresCount", ++x, true);
-
-                    // Se já bateu os 3 ganhadores, desativa imediatamente
-                    if (x >= 3)
-                    {
-                        CPH.DisableAction("Youtube Compara Palavra");
-
-                        CPH.UnsetGlobalVar("moedasSurpresaPalavra", true);
-                        CPH.UnsetGlobalVar("moedasSurpresaGanhadoresCount", true);
-                        CPH.UnsetGlobalVar("moedasSurpresaListaGanhadores", true);
-                    }
+                    Avisar(mensagemSucesso);
                 }
             }
 
@@ -105,6 +134,19 @@ public class CPHInline
         {
             CPH.LogError(">>> [COMPARA_PALAVRA] ERRO: " + ex.Message);
             return false;
+        }
+    }
+
+    private void Avisar(string mensagem)
+    {
+        try
+        {
+            if (mensagem.Length > 200) mensagem = mensagem.Substring(0, 197) + "...";
+            CPH.SendYouTubeMessage(mensagem, false);
+        }
+        catch (Exception ex)
+        {
+            CPH.LogError(">>> [COMPARA_PALAVRA] Falha ao enviar aviso ao chat: " + ex.Message);
         }
     }
 

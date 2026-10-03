@@ -1,9 +1,8 @@
 using System;
 using System.IO;
-using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 260922.1505
+// Atualização 261003.1010
 public class CPHInline
 {
     public bool Execute()
@@ -128,9 +127,8 @@ public class CPHInline
 
                 // Desafio de Palavra Surpresa
                 var moedasSurpresaPalavra = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true);
-                var actionComparaPalavra = CPH.GetActions().FirstOrDefault(a => a.Name.Equals("Youtube Compara Palavra", StringComparison.OrdinalIgnoreCase));
 
-                if (!string.IsNullOrEmpty(moedasSurpresaPalavra) && actionComparaPalavra != null && actionComparaPalavra.Enabled)
+                if (!string.IsNullOrEmpty(moedasSurpresaPalavra))
                 {
                     CPH.ExecuteMethod("Youtube Compara Palavra", "CompararPalavra");
                 }
