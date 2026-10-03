@@ -5,7 +5,7 @@ using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260922.1605
+// Atualização 261003.1205
 public class CPHInline
 {
     public bool CadastrarAudio()
@@ -205,6 +205,16 @@ public class CPHInline
 
     public bool ReproduzirAudio()
     {
+        string operacaoId = Guid.NewGuid().ToString("D");
+        string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        Evento evento = null;
+        string comando = null;
+        string arquivo = null;
+        string caminhoArquivo = null;
+        int custo = 0;
+        int grupoId = 0;
+        string debitoStatus = "nao_iniciado";
+        string etapa = "consulta";
         try
         {
             var contexto = ObterContexto();
@@ -213,14 +223,14 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            Evento evento = contexto.Evento;
+            evento = contexto.Evento;
             Ambiente ambiente = contexto.Ambiente;
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (partes.Length == 0)
                 return false;
 
-            string comando = partes[0].ToLowerInvariant();
+            comando = partes[0].ToLowerInvariant();
             if (!comando.StartsWith("!"))
                 return false;
 
@@ -233,9 +243,9 @@ public class CPHInline
             if (!audioEncontrado)
                 return false;
 
-            CPH.TryGetArg("audioArquivo", out string arquivo);
-            CPH.TryGetArg("audioCusto", out int custo);
-            CPH.TryGetArg("audioGrupoId", out int grupoId);
+            CPH.TryGetArg("audioArquivo", out arquivo);
+            CPH.TryGetArg("audioCusto", out custo);
+            CPH.TryGetArg("audioGrupoId", out grupoId);
             CPH.TryGetArg("audioCooldownSegundos", out int cooldownSegundos);
             CPH.TryGetArg("audioUltimoUso", out string ultimoUsoStr);
 
@@ -254,7 +264,7 @@ public class CPHInline
                 }
             }
 
-            string caminhoArquivo = Path.Combine(ambiente.PastaAudios, arquivo);
+            caminhoArquivo = Path.Combine(ambiente.PastaAudios, arquivo);
             if (!File.Exists(caminhoArquivo))
             {
                 CPH.LogError($">>> [GERENTE_DE_AUDIO] ERRO: arquivo '{arquivo}' não encontrado na pasta de áudios.");
@@ -268,24 +278,49 @@ public class CPHInline
                 CPH.SetArgument("debitarBroadcastUserId", evento.BroadcastUserId);
                 CPH.SetArgument("debitarCusto", custo);
 
+                etapa = "debito";
+                debitoStatus = "incerto";
                 bool debitou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "DebitarMoedasUsuario");
                 if (!debitou)
                 {
-                    CPH.SendYouTubeMessage($"❌ @{evento.UserName}, saldo insuficiente (custo: {custo:N0} Moedas).");
+                    RegistrarFalhaAudio(operacaoId, timestamp, evento, comando, arquivo, caminhoArquivo, grupoId, custo, debitoStatus, etapa, "DebitarMoedasUsuario retornou false; consulte o log do banco para distinguir saldo insuficiente de falha técnica.");
+                    CPH.SendYouTubeMessage($"❌ @{evento.UserName}, não foi possível confirmar o débito de {custo:N0} moedas para o áudio. Confira seu saldo.");
                     return true;
                 }
             }
 
+            debitoStatus = custo > 0 ? "debitado" : "gratuito";
+            etapa = "reproducao";
             CPH.PlaySound(caminhoArquivo, 1, false, "", true);
+            etapa = "cooldown";
             CPH.SetArgument("atualizarUltimoUsoGrupoId", grupoId);
-            CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "AtualizarUltimoUsoAudio");
+            if (!CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "AtualizarUltimoUsoAudio"))
+                RegistrarFalhaAudio(operacaoId, timestamp, evento, comando, arquivo, caminhoArquivo, grupoId, custo, debitoStatus, etapa, "AtualizarUltimoUsoAudio retornou false; a chamada de reprodução já terminou sem exceção.");
             return true;
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO CRÍTICO ao reproduzir áudio: " + ex.Message);
-            return false;
+            RegistrarFalhaAudio(operacaoId, timestamp, evento, comando, arquivo, caminhoArquivo, grupoId, custo, debitoStatus, etapa, ex.ToString());
+            if (etapa == "reproducao" && debitoStatus == "debitado")
+            {
+                try
+                {
+                    CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, não foi possível confirmar a reprodução do áudio. Se ele não tocou, informe o streamer.");
+                }
+                catch (Exception avisoEx)
+                {
+                    CPH.LogError($">>> [GERENTE_DE_AUDIO] Falha ao enviar aviso da operação {operacaoId}: {avisoEx}");
+                }
+            }
+            return etapa == "reproducao" || etapa == "cooldown";
         }
+    }
+
+    private void RegistrarFalhaAudio(string operacaoId, string timestamp, Evento evento, string comando, string arquivo, string caminhoArquivo, int grupoId, int custo, string debitoStatus, string etapa, string erro)
+    {
+        bool podeConferirDevolucao = debitoStatus == "debitado" && etapa == "reproducao";
+        string comandoSugerido = podeConferirDevolucao && !string.IsNullOrWhiteSpace(evento?.UserName) && evento.UserName.IndexOfAny(new[] { ' ', '\t', '\r', '\n' }) < 0 ? $"!adicionar @{evento.UserName.TrimStart('@')} {custo}" : null;
+        CPH.LogError(">>> [GERENTE_DE_AUDIO] RECUPERACAO_MANUAL " + JsonConvert.SerializeObject(new { operacaoId, timestamp, userId = evento?.UserId, userName = evento?.UserName, broadcastUserId = evento?.BroadcastUserId, broadcastUserName = evento?.BroadcastUserName, comando, arquivo, caminhoArquivo, grupoId, custo, quantidadeDebitadaConfirmada = debitoStatus == "debitado" ? custo : 0, debitoStatus, etapa, reproducaoRetornouSemExcecao = etapa == "cooldown", erro, comandoSugerido, orientacao = podeConferirDevolucao ? "Antes de devolver, confirmar que o áudio não tocou, conferir usuário/ID e verificar que ainda não houve devolução. O comando é apenas uma sugestão, nunca executado automaticamente." : "Não devolver automaticamente. Débito incerto exige conferência no banco; falha no cooldown não indica falha na reprodução." }));
     }
 
     public class AudioResumo
