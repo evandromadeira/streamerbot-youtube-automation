@@ -2,8 +2,9 @@ using System;
 using System.IO;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
-// Versão 260930.1930
+// Versão 261003.1415
 public class CPHInline
 {
     public bool AdicionarTempoPorDoacao()
@@ -99,6 +100,7 @@ public class CPHInline
 
     public bool ProcessarComando()
     {
+        Evento evento = null;
         try
         {
             var contexto = ObterContexto();
@@ -107,7 +109,7 @@ public class CPHInline
                 CPH.LogError(">>> [GERENTE_DE_TIMER] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            Evento evento = contexto.Evento;
+            evento = contexto.Evento;
             Ambiente ambiente = contexto.Ambiente;
 
             if (!evento.IsMod)
@@ -184,6 +186,11 @@ public class CPHInline
 
             CPH.LogInfo($"[GERENTE_DE_TIMER] Comando processado - Usuário: {evento.UserName} | Ação: {acao} | Entrada: {entradaUsuario}");
         }
+        catch (FalhaLeituraTimerException ex)
+        {
+            RegistrarFalhaLeituraTimer(ex, "ProcessarComando", evento);
+            return false;
+        }
         catch (Exception ex)
         {
             CPH.LogError(">>> [GERENTE_DE_TIMER] ERRO CRÍTICO ao processar comando do timer: " + ex.Message);
@@ -234,6 +241,11 @@ public class CPHInline
             CPH.RunAction("Youtube Executa Timer", false);
 
             CPH.LogInfo($"[GERENTE_DE_TIMER] Timer iniciado automaticamente - TempoTotal: {timer.TempoTotal}s");
+        }
+        catch (FalhaLeituraTimerException ex)
+        {
+            RegistrarFalhaLeituraTimer(ex, "IniciarTimer", null);
+            return false;
         }
         catch (Exception ex)
         {
@@ -293,18 +305,47 @@ public class CPHInline
     {
         try
         {
-            if (!File.Exists(caminho)) return Activator.CreateInstance<T>();
-
             string json = File.ReadAllText(caminho);
-            var variaveis = JsonConvert.DeserializeObject<T>(json);
-
-            if (variaveis == null) return Activator.CreateInstance<T>();
-
+            var objeto = JObject.Parse(json);
+            if (typeof(T) == typeof(VariaveisTimer))
+            {
+                string[] campos = { "SegundosPorPonto", "MultiplicadorDeTempo", "TempoTotal", "TempoFinal", "Ativo", "SubathonAtivo" };
+                foreach (string campo in campos)
+                {
+                    var valor = objeto.GetValue(campo, StringComparison.OrdinalIgnoreCase);
+                    if (valor == null || valor.Type == JTokenType.Null)
+                        throw new InvalidDataException("Configuração do Timer sem o campo obrigatório: " + campo);
+                }
+            }
+            var variaveis = objeto.ToObject<T>();
+            if (variaveis == null) throw new InvalidDataException("Configuração do Timer vazia.");
             return variaveis;
         }
         catch (Exception ex)
         {
-            return Activator.CreateInstance<T>();
+            throw new FalhaLeituraTimerException(caminho, ex);
+        }
+    }
+
+    public class FalhaLeituraTimerException : Exception
+    {
+        public string Caminho { get; private set; }
+        public FalhaLeituraTimerException(string caminho, Exception erro) : base("Não foi possível ler a configuração do Timer.", erro)
+        {
+            Caminho = caminho;
+        }
+    }
+
+    private void RegistrarFalhaLeituraTimer(FalhaLeituraTimerException erro, string operacao, Evento evento)
+    {
+        CPH.LogError(">>> [GERENTE_DE_TIMER] FALHA_LEITURA " + JsonConvert.SerializeObject(new { operacaoId = Guid.NewGuid().ToString("D"), timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), operacao, acaoSolicitada = evento == null ? "Iniciar automaticamente" : DetectarAcao(ExtrairEntradaUsuario(evento.MessageText), null).ToString(), userId = evento?.UserId, userName = evento?.UserName, broadcastUserId = evento?.BroadcastUserId, broadcastUserName = evento?.BroadcastUserName, comando = evento?.MessageText, caminhoArquivo = erro.Caminho, erro = erro.ToString(), orientacao = "Operação interrompida sem gravar o arquivo ou aplicar alterações ao OBS. Verificar existência, acesso e conteúdo do JSON antes de tentar novamente." }));
+        try
+        {
+            CPH.SendYouTubeMessage("⚠ Não foi possível ler a configuração do Timer. Nenhuma alteração foi feita.", false);
+        }
+        catch (Exception avisoEx)
+        {
+            CPH.LogError(">>> [GERENTE_DE_TIMER] Falha ao enviar aviso de leitura: " + avisoEx);
         }
     }
 
@@ -333,21 +374,13 @@ public class CPHInline
 
     public void SalvaVariaveisTimer(string caminho, VariaveisTimer timer)
     {
-        try
-        {
-            var variaveisAtuais = ObtemVariaveis<VariaveisTimer>(caminho);
-
-            variaveisAtuais.TempoTotal = timer.TempoTotal;
-            variaveisAtuais.TempoFinal = timer.TempoFinal;
-            variaveisAtuais.Ativo = timer.Ativo;
-            variaveisAtuais.SubathonAtivo = timer.SubathonAtivo;
-
-            SalvaVariaveis(caminho, variaveisAtuais);
-        }
-        catch (Exception ex)
-        {
-            CPH.LogError($"[GERENTE_DE_TIMER] Erro ao salvar Timer: {ex.Message}");
-        }
+        // Uma falha nesta segunda leitura também precisa interromper o comando.
+        var variaveisAtuais = ObtemVariaveis<VariaveisTimer>(caminho);
+        variaveisAtuais.TempoTotal = timer.TempoTotal;
+        variaveisAtuais.TempoFinal = timer.TempoFinal;
+        variaveisAtuais.Ativo = timer.Ativo;
+        variaveisAtuais.SubathonAtivo = timer.SubathonAtivo;
+        SalvaVariaveis(caminho, variaveisAtuais);
     }
 
     public bool ContemComando(string parametro, params string[] palavrasChave)
@@ -399,10 +432,10 @@ public class CPHInline
         else
         {
             timer.TempoTotal += segundos;
-            CPH.ObsSetGdiText("Timer", "Timer SB", FormatarTempo(timer.TempoTotal), 0);
         }
 
         SalvaVariaveisTimer(caminhoTimerVariaveis, timer);
+        if (!timer.Ativo) CPH.ObsSetGdiText("Timer", "Timer SB", FormatarTempo(timer.TempoTotal), 0);
     }
 
     public string FormatarTempo(int totalSegundos)
@@ -437,6 +470,9 @@ public class CPHInline
 
     public class Evento
     {
+        public string UserId { get; set; }
+        public string BroadcastUserId { get; set; }
+        public string BroadcastUserName { get; set; }
         public bool IsMod { get; set; }
         public string UserName { get; set; }
         public string MessageText { get; set; }
