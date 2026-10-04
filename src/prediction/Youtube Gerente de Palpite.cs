@@ -4,21 +4,21 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
-// Atualização 260922.1605
+// Atualização 261004.1025
 public class CPHInline
 {
     public bool IniciarPalpite()
     {
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
                 CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            Evento evento = contexto.Evento;
 
+            Evento evento = contexto.Evento;
             if (!evento.IsMod)
             {
                 CPH.SendYouTubeMessage($"@{evento.UserName} - apenas moderadores podem iniciar um palpite.");
@@ -26,7 +26,9 @@ public class CPHInline
             }
 
             string mensagem = evento.MessageText ?? "";
+
             int primeiroEspaco = mensagem.IndexOf(' ');
+
             string resto = primeiroEspaco >= 0 ? mensagem.Substring(primeiroEspaco + 1).Trim() : "";
 
             var matchTempo = Regex.Match(resto, @"^(\d+)([msh])(\s+|$)", RegexOptions.IgnoreCase);
@@ -37,8 +39,11 @@ public class CPHInline
             }
 
             int valorTempo = int.Parse(matchTempo.Groups[1].Value);
+
             string unidadeTempo = matchTempo.Groups[2].Value.ToLowerInvariant();
+
             int durationSeconds = unidadeTempo == "h" ? valorTempo * 3600 : unidadeTempo == "m" ? valorTempo * 60 : valorTempo;
+
             string restoAposTempo = resto.Substring(matchTempo.Length).Trim();
 
             int posPipe = restoAposTempo.IndexOf('|');
@@ -112,14 +117,14 @@ public class CPHInline
     {
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
                 CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            Evento evento = contexto.Evento;
 
+            Evento evento = contexto.Evento;
             if (!evento.IsMod)
             {
                 CPH.SendYouTubeMessage($"@{evento.UserName} - apenas moderadores podem declarar o resultado de um palpite.");
@@ -127,6 +132,7 @@ public class CPHInline
             }
 
             string mensagem = evento.MessageText ?? "";
+
             var partes = mensagem.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
             string opcaoVencedora = partes.Length == 2 ? partes[1].ToLowerInvariant() : "";
@@ -137,6 +143,7 @@ public class CPHInline
             }
 
             CPH.SetArgument("resolverPalpiteOpcaoVencedora", opcaoVencedora);
+
             if (!CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ResolverPalpite"))
             {
                 CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: falha ao executar ResolverPalpite no banco de dados.");
@@ -152,6 +159,7 @@ public class CPHInline
                     CPH.TryGetArg("resolverPalpiteDescription", out string description);
                     CPH.TryGetArg("resolverPalpiteTotalPago", out int totalPago);
                     CPH.TryGetArg("resolverPalpiteQtdVencedores", out int qtdVencedores);
+
                     CPH.SendYouTubeMessage($"🏆 Palpite \"{description}\" encerrado! Opção vencedora: {opcaoVencedora}) — {qtdVencedores} vencedor(es) dividiram {totalPago:N0} moeda(s)!");
                     break;
                 case "SemGanhadores":
@@ -182,14 +190,14 @@ public class CPHInline
     {
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
                 CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            Evento evento = contexto.Evento;
 
+            Evento evento = contexto.Evento;
             if (!evento.IsMod)
             {
                 CPH.SendYouTubeMessage($"@{evento.UserName} - apenas moderadores podem cancelar um palpite.");
@@ -232,17 +240,18 @@ public class CPHInline
     {
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
                 CPH.LogError(">>> [GERENTE_DE_PALPITE] ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
+
             Evento evento = contexto.Evento;
 
             string mensagem = evento.MessageText ?? "";
-            var partes = mensagem.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
+            var partes = mensagem.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (partes.Length != 3)
             {
                 CPH.SendYouTubeMessage($"@{evento.UserName} - sintaxe: !palpite [opção] [valor], ex: !palpite a 50");
@@ -326,7 +335,6 @@ public class CPHInline
             }
 
             CPH.TryGetArg("palpiteEncerradoEncontrado", out bool encontrado);
-
             if (encontrado)
             {
                 CPH.TryGetArg("palpiteEncerradoDescription", out string description);
@@ -335,12 +343,15 @@ public class CPHInline
 
                 var options = (optionsRaw ?? "").Split(';');
                 var totais = JsonConvert.DeserializeObject<Dictionary<string, int>>(totaisJson ?? "{}") ?? new Dictionary<string, int>();
+
                 int poteTotal = totais.Values.Sum();
 
                 string resumo = string.Join(" | ", options.Select((opcao, indice) =>
                 {
                     string letra = ((char)('a' + indice)).ToString();
+
                     int total = totais.ContainsKey(letra) ? totais[letra] : 0;
+
                     string multiplicador = total > 0 ? $" ({(double)poteTotal / total:0.00}x)" : " (sem apostas)";
                     return $"{letra}) {opcao}: {total:N0}{multiplicador}";
                 }));
@@ -361,12 +372,8 @@ public class CPHInline
     {
         if (segundos % 60 == 0)
             return $"{segundos / 60} minuto(s)";
-        return $"{segundos} segundo(s)";
-    }
 
-    public class Contexto
-    {
-        public Evento Evento { get; set; }
+        return $"{segundos} segundo(s)";
     }
 
     private Contexto ObterContexto()
@@ -378,11 +385,17 @@ public class CPHInline
         return JsonConvert.DeserializeObject<Contexto>(contextoJson);
     }
 
+    public class Contexto
+    {
+        public Evento Evento { get; set; }
+    }
+
     public class Evento
     {
         public bool IsSub { get; set; }
         public bool IsSpo { get; set; }
         public bool IsMod { get; set; }
+
         public string UserId { get; set; }
         public string UserName { get; set; }
         public string UserPreviousActive { get; set; }
