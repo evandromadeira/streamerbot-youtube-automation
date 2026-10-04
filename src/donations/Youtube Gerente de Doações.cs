@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261002.0945
+// Atualização 261003.2055
 // Triggers -> Source: Youtube > Chat       | Type: Super Chat       | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Super Sticker    | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Jewels Gifted    | Enabled: Yes | Criteria: Any
@@ -141,6 +141,7 @@ public class CPHInline
         CPH.SetArgument("doacaoUserId", evento.UsuarioId);
         CPH.SetArgument("doacaoUserName", evento.Usuario);
         CPH.SetArgument("doacaoTipoAcao", evento.TipoAcao);
+        CPH.SetArgument("doacaoMessage", evento.Message);
         CPH.SetArgument("doacaoValorOriginal", evento.Valor);
         CPH.SetArgument("doacaoMoedaOrigem", evento.CurrencyCode ?? "BRL");
         CPH.SetArgument("doacaoValorBRL", valorEmBRL);
@@ -252,7 +253,7 @@ public class CPHInline
         public bool IsNewSponsor { get; }
         public bool IsMemberMilestone { get; }
         public bool IsMembershipGift { get; }
-        public bool IsTipLivePix { get; }
+        public bool IsTip { get; }
 
         public string Usuario { get; }
         public string UsuarioId { get; }
@@ -262,6 +263,7 @@ public class CPHInline
         public string BroadcastUserId { get; }
         public string BroadcastUserName { get; }
         public string MessageId { get; }
+        public string Message { get; }
         public string Tier { get; }
 
         public double Valor { get; }
@@ -292,10 +294,11 @@ public class CPHInline
             CPH.TryGetArg("tier", out string tier);
             CPH.TryGetArg("count", out int count);
 
-            // Campos exclusivos do Tip via LivePix (StreamElements)
+            // Campos do Tip via StreamElements (LivePix ou PayPal)
             CPH.TryGetArg("tipUsername", out string tipUsername);
             CPH.TryGetArg("tipAmount", out double tipAmount);
             CPH.TryGetArg("tipCurrency", out string tipCurrency);
+            CPH.TryGetArg("tipMessage", out string tipMessage);
 
             string usuarioEmissao = CPH.GetGlobalVar<string>("usuarioEmissao", true);
 
@@ -304,15 +307,16 @@ public class CPHInline
             IsNewSponsor = tipoAcao == "New Sponsor";
             IsMemberMilestone = tipoAcao == "Member Milestone";
             IsMembershipGift = tipoAcao == "Membership Gift";
-            IsTipLivePix = tipoAcao == "Tip";
+            IsTip = tipoAcao == "Tip";
             JewelsAmount = jewelsAmount;
             QuantidadeGifts = count > 0 ? count : 1;
-            Usuario = IsTipLivePix ? tipUsername : usuario;
-            UsuarioId = IsTipLivePix ? "" : usuarioId;
+            Usuario = IsTip ? tipUsername : usuario;
+            UsuarioId = IsTip ? "" : usuarioId;
             BroadcastId = broadcastId;
-            BroadcastUserId = IsTipLivePix ? "" : broadcastUserId;
-            BroadcastUserName = IsTipLivePix ? (string.IsNullOrEmpty(usuarioEmissao) ? "YOUTUBE" : usuarioEmissao) : (string.IsNullOrEmpty(broadcastUserName) ? "YOUTUBE" : broadcastUserName);
+            BroadcastUserId = IsTip ? "" : broadcastUserId;
+            BroadcastUserName = IsTip ? (string.IsNullOrEmpty(usuarioEmissao) ? "YOUTUBE" : usuarioEmissao) : (string.IsNullOrEmpty(broadcastUserName) ? "YOUTUBE" : broadcastUserName);
             MessageId = messageId;
+            Message = IsTip ? (tipMessage ?? "") : "";
             Tier = IsNewSponsor || IsMemberMilestone ? levelName : (IsMembershipGift ? tier : null);
 
             // Define o valor com base na ação correta
@@ -331,7 +335,7 @@ public class CPHInline
                 Valor = ObterValorTier(Tier) * QuantidadeGifts;
                 CurrencyCode = "BRL";
             }
-            else if (IsTipLivePix)
+            else if (IsTip)
             {
                 Valor = tipAmount;
                 CurrencyCode = tipCurrency;

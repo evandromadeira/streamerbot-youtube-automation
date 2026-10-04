@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-// Atualização 261002.0945
+// Atualização 261003.2055
 // Sem triggers. Chamado por Youtube Gerente de Doações via ExecuteMethod.
 // Configure o Name de Execute C# Code como Youtube Recompensar Doações.
 public class CPHInline
@@ -111,6 +111,12 @@ public class CPHInline
         if (mensagem.Length > 200) mensagem = mensagem.Substring(0, 197) + "...";
 
         CPH.SendYouTubeMessage(mensagem, true);
+        if (tipoAcao == "Tip" && CPH.TryGetArg("doacaoMessage", out string mensagemTip) && !string.IsNullOrWhiteSpace(mensagemTip))
+        {
+            string mensagemDoador = $"💬 @{usuario}: {mensagemTip.Trim()}";
+            if (mensagemDoador.Length > 200) mensagemDoador = mensagemDoador.Substring(0, 197) + "...";
+            CPH.SendYouTubeMessage(mensagemDoador, true);
+        }
         return true;
     }
 
