@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261003.2055
+// Atualização 261004.1615
 // Triggers -> Source: Youtube > Chat       | Type: Super Chat       | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Super Sticker    | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Jewels Gifted    | Enabled: Yes | Criteria: Any
@@ -291,12 +291,12 @@ public class CPHInline
             CPH.TryGetArg("levelName", out string levelName);
 
             // Campos exclusivos do Membership Gift (YouTube não informa valor em dinheiro, só o tier)
-            CPH.TryGetArg("tier", out string tier);
             CPH.TryGetArg("count", out int count);
+            CPH.TryGetArg("tier", out string tier);
 
             // Campos do Tip via StreamElements (LivePix ou PayPal)
-            CPH.TryGetArg("tipUsername", out string tipUsername);
             CPH.TryGetArg("tipAmount", out double tipAmount);
+            CPH.TryGetArg("tipUsername", out string tipUsername);
             CPH.TryGetArg("tipCurrency", out string tipCurrency);
             CPH.TryGetArg("tipMessage", out string tipMessage);
 
@@ -309,14 +309,14 @@ public class CPHInline
             IsMembershipGift = tipoAcao == "Membership Gift";
             IsTip = tipoAcao == "Tip";
             JewelsAmount = jewelsAmount;
-            QuantidadeGifts = count > 0 ? count : 1;
             Usuario = IsTip ? tipUsername : usuario;
             UsuarioId = IsTip ? "" : usuarioId;
             BroadcastId = broadcastId;
-            BroadcastUserId = IsTip ? "" : broadcastUserId;
+            BroadcastUserId = IsTip ? (CPH.YouTubeGetBroadcaster()?.UserId ?? "") : broadcastUserId;
             BroadcastUserName = IsTip ? (string.IsNullOrEmpty(usuarioEmissao) ? "YOUTUBE" : usuarioEmissao) : (string.IsNullOrEmpty(broadcastUserName) ? "YOUTUBE" : broadcastUserName);
             MessageId = messageId;
             Message = IsTip ? (tipMessage ?? "") : "";
+            QuantidadeGifts = count > 0 ? count : 1;
             Tier = IsNewSponsor || IsMemberMilestone ? levelName : (IsMembershipGift ? tier : null);
 
             // Define o valor com base na ação correta
