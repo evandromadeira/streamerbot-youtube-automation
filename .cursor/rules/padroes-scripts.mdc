@@ -1,0 +1,8 @@
+---
+description: Padrões obrigatórios para criar ou editar scripts C# do Streamer.bot neste projeto
+globs: "**/*.cs"
+alwaysApply: false
+---
+
+Antes de criar ou editar scripts C#, leia e siga o arquivo PADROES.md na raiz do repositório.
+Inclui scripts de produção e de manutenção. Preserve contratos existentes enquanto a escolha entre JSON e argumentos individuais estiver pendente.
