@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 260924.1600
+// Atualização 261005.1310
 public class CPHInline
 {
     private const int VersaoRegraPlataforma = 1;
@@ -317,25 +317,6 @@ public class CPHInline
     }
 
     // ------------------------------------------------------------------
-    // Representa o item do catálogo recebido do Gerente de Banco de Dados
-    // ------------------------------------------------------------------
-    public class PlataformaItem
-    {
-        public string Item { get; set; }
-        public string NomeExibicao { get; set; }
-        public string Descricao { get; set; }
-        public string Categoria { get; set; }
-        public string Slot { get; set; }
-        public int Tier { get; set; }
-        public string ItemPrerequisito { get; set; }
-        public int Valor { get; set; }
-        public int LimiteMaximo { get; set; }
-        public int? EstoqueGlobal { get; set; }
-        public bool Ativo { get; set; }
-        public bool Visivel { get; set; }
-    }
-
-    // ------------------------------------------------------------------
     // Obtém o contexto criado pelo Gerente de Chat
     // ------------------------------------------------------------------
     private Contexto ObterContexto()
@@ -346,6 +327,30 @@ public class CPHInline
             return null;
 
         return JsonConvert.DeserializeObject<Contexto>(contextoJson);
+    }
+
+    // ------------------------------------------------------------------
+    // Representa o item do catálogo recebido do Gerente de Banco de Dados
+    // ------------------------------------------------------------------
+    public class PlataformaItem
+    {
+        public int Tier { get; set; }
+        public int Valor { get; set; }
+        public int LimiteMaximo { get; set; }
+        public int? EstoqueGlobal { get; set; }
+
+        public long Id { get; set; }
+        public long? ItemPrerequisitoId { get; set; }
+
+        public string Item { get; set; }
+        public string NomeExibicao { get; set; }
+        public string Descricao { get; set; }
+        public string Categoria { get; set; }
+        public string Slot { get; set; }
+        public string ItemPrerequisito { get; set; }
+
+        public bool Ativo { get; set; }
+        public bool Visivel { get; set; }
     }
 
     public class Contexto
