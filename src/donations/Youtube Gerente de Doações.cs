@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261004.1615
+// Atualização 261004.1720
 // Triggers -> Source: Youtube > Chat       | Type: Super Chat       | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Super Sticker    | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Jewels Gifted    | Enabled: Yes | Criteria: Any
@@ -17,38 +17,48 @@ public class CPHInline
     {
         Evento evento = new Evento(CPH);
 
-        string processamentoId = Guid.NewGuid().ToString("D");
-        string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
         double valorEmBRL;
         double pontosMeta;
 
-        if (!CalcularDoacao(evento, out valorEmBRL, out pontosMeta)) return false;
+        string processamentoId = Guid.NewGuid().ToString("D");
+        string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+        if (!CalcularDoacao(evento, out valorEmBRL, out pontosMeta))
+            return false;
 
         int pontosMetaInt = (int)Math.Round(pontosMeta);
+
         PrepararArgumentos(evento, processamentoId, timestamp, valorEmBRL, pontosMeta, pontosMetaInt);
 
-        if ((evento.IsNewSponsor || evento.IsMemberMilestone) && EventoDuplicado(evento)) return true;
+        if ((evento.IsNewSponsor || evento.IsMemberMilestone) && EventoDuplicado(evento))
+            return true;
+
+        string erro;
 
         bool sucesso = true;
-        string erro;
         bool recompensou = ExecutarMetodo("Youtube Recompensar Doações", "RecompensarDoacao", out erro);
         bool creditoConfirmado = LerTexto("doacaoCreditoStatus") == "creditado";
+
         if (!recompensou || !creditoConfirmado)
         {
             sucesso = false;
+
             RegistrarFalha("moedas", LerTexto("doacaoCreditoStatus"), JuntarErro(erro, LerTexto("doacaoCreditoErro")));
             Avisar(creditoConfirmado ? "⚠ Crédito de moedas confirmado, mas houve uma falha posterior. Confira o log." : "❌ Falha técnica ao adicionar moedas.");
         }
 
         // Só registra como moedaGanha o crédito confirmado. A quantidade calculada fica no log de recuperação.
         CPH.TryGetArg("doacaoMoedasCalculadas", out int moedasCalculadas);
+
         CPH.SetArgument("doacaoMoedaGanha", creditoConfirmado ? moedasCalculadas : 0);
 
         bool salvou = ExecutarMetodo("Youtube Gerente de Banco de Dados", "SalvarDoacao", out erro);
         bool registroConfirmado = LerTexto("doacaoRegistroStatus") == "salvo";
+
         if (!salvou || !registroConfirmado)
         {
             sucesso = false;
+
             RegistrarFalha("registro", LerTexto("doacaoRegistroStatus"), JuntarErro(erro, LerTexto("doacaoRegistroErro")));
             Avisar(registroConfirmado ? "⚠ Doação registrada, mas houve uma falha posterior. Confira o log." : "❌ Falha técnica ao registrar a doação. Dados para conferência no log.");
         }
@@ -59,10 +69,13 @@ public class CPHInline
         CPH.SetArgument("timerPontosMeta", pontosMeta);
 
         bool adicionouTempo = ExecutarMetodo("Youtube Gerente de Timer", "AdicionarTempoPorDoacao", out erro);
+
         string statusTimer = LerTexto("timerDoacaoStatus");
+
         if (!adicionouTempo || (statusTimer != "aplicado" && statusTimer != "ignorado"))
         {
             sucesso = false;
+
             RegistrarFalha("timer", statusTimer, JuntarErro(erro, LerTexto("timerDoacaoErro")));
             Avisar(statusTimer == "aplicado" ? "⚠ Tempo da doação salvo, mas houve uma falha ao atualizar a exibição da Maratona. Confira o log." : "❌ Falha técnica ao processar tempo da doação.");
         }
@@ -110,6 +123,7 @@ public class CPHInline
 
         valorEmBRL = evento.IsNewSponsor || evento.IsMemberMilestone ? evento.Valor : ConverterParaBRL(evento.Valor, evento.CurrencyCode);
         pontosMeta = valorConversao * valorEmBRL * 100;
+
         if (string.IsNullOrWhiteSpace(evento.Usuario) || double.IsNaN(valorEmBRL) || double.IsInfinity(valorEmBRL) || valorEmBRL <= 0 || pontosMeta > int.MaxValue || double.IsNaN(pontosMeta) || double.IsInfinity(pontosMeta))
         {
             CPH.LogError($">>> [GERENTE_DOAÇÕES] Doação inválida, sem processamento: {JsonConvert.SerializeObject(new { evento, valorEmBRL, pontosMeta })}");
@@ -129,8 +143,10 @@ public class CPHInline
             { "EUR", 5.80 },
             { "GBP", 6.80 }
         };
+
         double taxa = moeda != null && taxas.TryGetValue(moeda, out double encontrada) ? encontrada : 1.0;
-        if (taxa == 1.0 && moeda != "BRL") CPH.LogWarn($">>> [GERENTE_DOAÇÕES] Moeda '{moeda}' sem taxa cadastrada, usando 1:1 como fallback.");
+        if (taxa == 1.0 && moeda != "BRL")
+            CPH.LogWarn($">>> [GERENTE_DOAÇÕES] Moeda '{moeda}' sem taxa cadastrada, usando 1:1 como fallback.");
         return valor * taxa;
     }
 
@@ -177,7 +193,9 @@ public class CPHInline
         CPH.SetArgument("doacaoDupTier", evento.Tier ?? "");
         CPH.SetArgument("doacaoDuplicada", false);
         CPH.SetArgument("doacaoDuplicidadeErro", "");
+
         bool consultou = ExecutarMetodo("Youtube Gerente de Banco de Dados", "VerificarDoacaoDuplicada", out string erro);
+
         if (!consultou || !CPH.TryGetArg("doacaoDuplicada", out bool duplicado))
         {
             RegistrarFalha("duplicidade", "consulta_falhou_continuando", JuntarErro(erro, LerTexto("doacaoDuplicidadeErro")));
@@ -234,7 +252,8 @@ public class CPHInline
     {
         // JSON em uma linha: preserva valores e nomes sem ambiguidade para correção manual; nunca executa SQL.
         var dados = new Dictionary<string, object>();
-        string[] argumentos = { "doacaoProcessamentoId", "doacaoTimestamp", "doacaoUserId", "doacaoUserName", "doacaoTipoAcao", "doacaoValorOriginal", "doacaoMoedaOrigem", "doacaoValorBRL", "doacaoPontosMeta", "doacaoPontosMetaExatos", "doacaoMoedasCalculadas", "doacaoMoedaGanha", "doacaoMultiplicador", "doacaoCreditoStatus", "adicionarDestinatarioId", "doacaoBroadcastUserId", "doacaoBroadcastUserName", "doacaoTier", "doacaoBroadcastId", "doacaoMessageId", "doacaoQuantidadeGifts", "doacaoJewelsAmount", "doacaoRegistroStatus", "doacaoRegistroId", "timerDoacaoStatus", "timerDoacaoSegundos" };
+
+        string[] argumentos = { "doacaoProcessamentoId", "doacaoTimestamp", "doacaoUserId", "doacaoUserName", "doacaoTipoAcao", "doacaoValorOriginal", "doacaoMoedaOrigem", "doacaoValorBRL", "doacaoPontosMeta", "doacaoPontosMetaExatos", "doacaoMoedasCalculadas", "doacaoMoedaGanha", "doacaoMultiplicador", "doacaoCreditoStatus", "adicionarDestinatarioId", "adicionarOperacaoId", "adicionarBancoInicioId", "adicionarBancoRespostaId", "adicionarBancoConcluido", "adicionarResultado", "adicionarErro", "doacaoBroadcastUserId", "doacaoBroadcastUserName", "doacaoTier", "doacaoBroadcastId", "doacaoMessageId", "doacaoQuantidadeGifts", "doacaoJewelsAmount", "doacaoRegistroStatus", "doacaoRegistroId", "timerDoacaoStatus", "timerDoacaoSegundos" };
         foreach (string argumento in argumentos)
         {
             CPH.TryGetArg(argumento, out object valor);
@@ -249,11 +268,10 @@ public class CPHInline
     }
     public class Evento
     {
-        public bool IsJewels { get; }
-        public bool IsNewSponsor { get; }
-        public bool IsMemberMilestone { get; }
-        public bool IsMembershipGift { get; }
-        public bool IsTip { get; }
+        public int QuantidadeGifts { get; }
+
+        public double Valor { get; }
+        public double JewelsAmount { get; }
 
         public string Usuario { get; }
         public string UsuarioId { get; }
@@ -266,10 +284,11 @@ public class CPHInline
         public string Message { get; }
         public string Tier { get; }
 
-        public double Valor { get; }
-        public double JewelsAmount { get; }
-
-        public int QuantidadeGifts { get; }
+        public bool IsJewels { get; }
+        public bool IsNewSponsor { get; }
+        public bool IsMemberMilestone { get; }
+        public bool IsMembershipGift { get; }
+        public bool IsTip { get; }
 
         public Evento(IInlineInvokeProxy CPH)
         {

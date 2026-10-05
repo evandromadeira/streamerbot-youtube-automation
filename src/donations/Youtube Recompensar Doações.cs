@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-// Atualização 261003.2055
+// Atualização 261004.1720
 // Sem triggers. Chamado por Youtube Gerente de Doações via ExecuteMethod.
 // Configure o Name de Execute C# Code como Youtube Recompensar Doações.
 public class CPHInline
@@ -51,10 +51,18 @@ public class CPHInline
             CPH.TryGetArg("adicionarCreditoStatus", out string status);
             CPH.TryGetArg("adicionarResultado", out string resultado);
             CPH.TryGetArg("adicionarErro", out string erro);
+            if (string.IsNullOrEmpty(resultado))
+            {
+                status = "incerto";
+                CPH.SetArgument("adicionarCreditoStatus", status);
+                erro = "Chamada de crédito retornou sem resultado. " + erro;
+            }
+
             bool creditou = status == "creditado";
             CPH.SetArgument("doacaoCreditoStatus", creditou ? "creditado" : (status == "falhou" ? "falhou" : "incerto"));
             CPH.SetArgument("doacaoMoedaGanha", creditou ? moedaGanha : 0);
-            if (string.IsNullOrEmpty(erro) && (!creditou || !executou)) erro = $"Crédito: retorno={executou}, resultado={resultado}, status={status}.";
+            if (string.IsNullOrEmpty(erro) && (!creditou || !executou))
+                erro = $"Crédito: retorno={executou}, resultado={resultado}, status={status}.";
             CPH.SetArgument("doacaoCreditoErro", erro ?? "");
             // Uma falha posterior ao COMMIT não desfaz o crédito confirmado, mas precisa aparecer no log.
             return creditou && executou && string.IsNullOrEmpty(erro);
@@ -63,10 +71,13 @@ public class CPHInline
         {
             CPH.TryGetArg("adicionarCreditoStatus", out string status);
             CPH.TryGetArg("doacaoMoedasCalculadas", out int moedasCalculadas);
+            CPH.TryGetArg("adicionarResultado", out string resultado);
+            if (chamouCredito && string.IsNullOrEmpty(resultado))
+                status = "incerto";
             bool creditou = chamouCredito && status == "creditado";
             CPH.SetArgument("doacaoCreditoStatus", creditou ? "creditado" : (!chamouCredito || status == "falhou" ? "falhou" : "incerto"));
             CPH.SetArgument("doacaoMoedaGanha", creditou ? moedasCalculadas : 0);
-            CPH.SetArgument("doacaoCreditoErro", ex.GetType().Name + ": " + ex.Message);
+            CPH.SetArgument("doacaoCreditoErro", ex.ToString());
             return false;
         }
     }
@@ -100,21 +111,28 @@ public class CPHInline
             _                   => ("Contribuição", "pela")
         };
         bool membro = tipoAcao == "New Sponsor" || tipoAcao == "Member Milestone" || tipoAcao == "Membership Gift";
+
         string detalheTier = membro && !string.IsNullOrEmpty(tier) ? $" ({tier}" + (quantidadeGifts > 1 ? $" x{quantidadeGifts})" : ")") : "";
         string agradecimento = tipoAcao == "Jewels Gifted" ? $"Obrigado {artigo} {jewelsAmount:N0} {nomeEvento}" : $"Obrigado {artigo} {nomeEvento}{detalheTier} de {ObterSimboloMoeda(moeda)} {valorOriginal:F2}";
         string mensagem = $"{agradecimento}, @{usuario}!";
+
         bool creditou = statusCredito == "creditado";
         bool registrou = statusRegistro == "salvo";
-        if (registrou) mensagem += $" Você contribuiu com {pontosMetaInt:N0} Pontos para as metas";
-        if (creditou) mensagem += (registrou ? " e ganhou " : " Você ganhou ") + $"{moedaGanha:N0} Moedas! ({multiplicador:N0} Multiplicador x {valorEmBRL:0.00#} x 20)";
-        else if (registrou) mensagem += "!";
-        if (mensagem.Length > 200) mensagem = mensagem.Substring(0, 197) + "...";
+        if (registrou)
+            mensagem += $" Você contribuiu com {pontosMetaInt:N0} Pontos para as metas";
+        if (creditou)
+            mensagem += (registrou ? " e ganhou " : " Você ganhou ") + $"{moedaGanha:N0} Moedas! ({multiplicador:N0} Multiplicador x {valorEmBRL:0.00#} x 20)";
+        else if (registrou)
+            mensagem += "!";
+        if (mensagem.Length > 200)
+            mensagem = mensagem.Substring(0, 197) + "...";
 
         CPH.SendYouTubeMessage(mensagem, true);
         if (tipoAcao == "Tip" && CPH.TryGetArg("doacaoMessage", out string mensagemTip) && !string.IsNullOrWhiteSpace(mensagemTip))
         {
             string mensagemDoador = $"💬 @{usuario}: {mensagemTip.Trim()}";
-            if (mensagemDoador.Length > 200) mensagemDoador = mensagemDoador.Substring(0, 197) + "...";
+            if (mensagemDoador.Length > 200)
+                mensagemDoador = mensagemDoador.Substring(0, 197) + "...";
             CPH.SendYouTubeMessage(mensagemDoador, true);
         }
         return true;

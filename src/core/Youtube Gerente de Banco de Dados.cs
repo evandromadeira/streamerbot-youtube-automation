@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 261003.1020
+// Atualização 261005.1745
 // Camada de dados da automação da live: centraliza todo o acesso ao SQLite (YoutubeStream.db)
 public class CPHInline
 {
@@ -14,14 +14,13 @@ public class CPHInline
     // ==================================================================
 
     // ------------------------------------------------------------------
-    // Cria as tabelas e o catálogo inicial e adiciona as colunas complementares de doações
+    // Cria as tabelas e adiciona as colunas complementares de doações
     // ------------------------------------------------------------------
     public bool GarantirSchema()
     {
         try
         {
             Ambiente ambiente = new Ambiente(CPH);
-
             if (string.IsNullOrEmpty(ambiente.PastaRaiz))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: Variável 'caminhoPastaStreamerBot' não encontrada!");
@@ -124,26 +123,27 @@ public class CPHInline
                 // Sistema da Plataforma
                 // ------------------------------------------------------------------
                 Executar(connection, @"CREATE TABLE IF NOT EXISTS YoutubePlataformaItens (
-                    item TEXT PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    item TEXT NOT NULL UNIQUE,
                     nomeExibicao TEXT NOT NULL,
                     descricao TEXT NOT NULL,
                     categoria TEXT NOT NULL,
                     slot TEXT,
                     tier INTEGER NOT NULL DEFAULT 0,
-                    itemPrerequisito TEXT,
+                    itemPrerequisitoId INTEGER,
                     valor INTEGER NOT NULL,
                     limiteMaximo INTEGER NOT NULL,
                     estoqueGlobal INTEGER,
                     ativo INTEGER NOT NULL DEFAULT 1,
                     visivel INTEGER NOT NULL DEFAULT 1,
-                    FOREIGN KEY (itemPrerequisito) REFERENCES YoutubePlataformaItens(item)
+                    FOREIGN KEY (itemPrerequisitoId) REFERENCES YoutubePlataformaItens(id)
                 );");
 
                 Executar(connection, @"CREATE TABLE IF NOT EXISTS YoutubePlataformaResgates (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     userId TEXT NOT NULL,
                     userName TEXT NOT NULL,
-                    item TEXT NOT NULL,
+                    itemId INTEGER NOT NULL,
                     valorBase INTEGER NOT NULL,
                     percentualDesconto INTEGER NOT NULL DEFAULT 0,
                     nivelMembro TEXT,
@@ -155,92 +155,17 @@ public class CPHInline
                     metadata TEXT,
                     versaoRegra INTEGER NOT NULL DEFAULT 1,
                     timestamp TEXT NOT NULL,
-                    FOREIGN KEY (item) REFERENCES YoutubePlataformaItens(item)
+                    FOREIGN KEY (itemId) REFERENCES YoutubePlataformaItens(id)
                 );");
 
                 Executar(connection, @"CREATE INDEX IF NOT EXISTS idx_resgates_usuario_item_status
-                    ON YoutubePlataformaResgates (userId, item, status);");
+                    ON YoutubePlataformaResgates (userId, itemId, status);");
 
                 Executar(connection, @"CREATE INDEX IF NOT EXISTS idx_resgates_usuario_data_status
                     ON YoutubePlataformaResgates (userId, timestamp, status);");
 
                 Executar(connection, @"CREATE INDEX IF NOT EXISTS idx_resgates_item_status
-                    ON YoutubePlataformaResgates (item, status);");
-
-                // ------------------------------------------------------------------
-                // Insere o catálogo inicial da Plataforma
-                // ------------------------------------------------------------------
-                Executar(connection, @"INSERT OR IGNORE INTO YoutubePlataformaItens
-                    (item, nomeExibicao, descricao, categoria, slot, tier, itemPrerequisito, valor, limiteMaximo, estoqueGlobal, ativo, visivel)
-                VALUES
-                    -- Estruturas Base e Upgrades
-                    ('pacote_plataforma', 'Pacote Plataforma', 'Estrutura base obrigatoria contendo 1 Plataforma, 1 Suporte de Armadura, 1 Bau e 6 Molduras Simples.', 'ESTRUTURA', 'plataforma', 0, NULL, 250000, 1, NULL, 1, 1),
-                    ('suporte_armadura', 'Suporte de Armadura', 'Suporte avulso adicional para exibicao de conjuntos de vestir.', 'ESTRUTURA', 'suporte_armadura', 0, 'pacote_plataforma', 150000, 4, NULL, 1, 1),
-                    ('shulker_colorida', 'Shulker Colorida', 'Upgrade estetico que substitui visual e estruturalmente o Bau Padrao.', 'UPGRADE', 'bau', 0, 'pacote_plataforma', 200000, 1, NULL, 1, 1),
-                    ('moldura_brilhante', 'Moldura Brilhante', 'Moldura especial reluzente para destacar armas ou ferramentas na plataforma.', 'UPGRADE', NULL, 0, 'pacote_plataforma', 100000, 6, NULL, 1, 1),
-                    ('mob', 'Mob', 'Entidade viva decorativa para habitabilidade da plataforma.', 'MOB', 'mob', 0, 'pacote_plataforma', 500000, 1, NULL, 1, 1),
-                    ('molde', 'Molde', 'Item consumivel para customizacao e acabamento visual.', 'CONSUMIVEL', NULL, 0, 'pacote_plataforma', 100000, 20, NULL, 1, 1),
-                    ('encantamento', 'Encantamento', 'Aprimoramento magico consumivel para equipamentos.', 'CONSUMIVEL', NULL, 0, 'pacote_plataforma', 5000, 50, NULL, 1, 1),
-
-                    -- Tier 1 - Cobre
-                    ('capacete_cobre', 'Capacete de Cobre', 'Protecao de cabeca feita em cobre.', 'ARMADURA', 'capacete', 1, 'pacote_plataforma', 40000, 1, NULL, 1, 1),
-                    ('peitoral_cobre', 'Peitoral de Cobre', 'Protecao de peito feita em cobre.', 'ARMADURA', 'peitoral', 1, 'pacote_plataforma', 40000, 1, NULL, 1, 1),
-                    ('calca_cobre', 'Calça de Cobre', 'Protecao de pernas feita em cobre.', 'ARMADURA', 'calca', 1, 'pacote_plataforma', 40000, 1, NULL, 1, 1),
-                    ('botas_cobre', 'Botas de Cobre', 'Protecao de pes feita em cobre.', 'ARMADURA', 'botas', 1, 'pacote_plataforma', 40000, 1, NULL, 1, 1),
-                    ('espada_cobre', 'Espada de Cobre', 'Arma de corte basica feita em cobre.', 'ARMA', 'espada', 1, 'pacote_plataforma', 35000, 1, NULL, 1, 1),
-                    ('lanca_cobre', 'Lança de Cobre', 'Arma de alcance basica feita em cobre.', 'ARMA', 'lanca', 1, 'pacote_plataforma', 35000, 1, NULL, 1, 1),
-                    ('picareta_cobre', 'Picareta de Cobre', 'Ferramenta de mineracao basica feita em cobre.', 'FERRAMENTA', 'picareta', 1, 'pacote_plataforma', 35000, 1, NULL, 1, 1),
-                    ('machado_cobre', 'Machado de Cobre', 'Ferramenta de corte de madeira basica feita em cobre.', 'FERRAMENTA', 'machado', 1, 'pacote_plataforma', 35000, 1, NULL, 1, 1),
-                    ('pa_cobre', 'Pá de Cobre', 'Ferramenta de escavacao basica feita em cobre.', 'FERRAMENTA', 'pa', 1, 'pacote_plataforma', 35000, 1, NULL, 1, 1),
-                    ('enxada_cobre', 'Enxada de Cobre', 'Ferramenta de cultivo basica feita em cobre.', 'FERRAMENTA', 'enxada', 1, 'pacote_plataforma', 35000, 1, NULL, 1, 1),
-
-                    -- Tier 2 - Ferro
-                    ('capacete_ferro', 'Capacete de Ferro', 'Protecao de cabeca feita em ferro resistente.', 'ARMADURA', 'capacete', 2, 'capacete_cobre', 80000, 1, NULL, 1, 1),
-                    ('peitoral_ferro', 'Peitoral de Ferro', 'Protecao de peito feita em ferro resistente.', 'ARMADURA', 'peitoral', 2, 'peitoral_cobre', 80000, 1, NULL, 1, 1),
-                    ('calca_ferro', 'Calça de Ferro', 'Protecao de pernas feita em ferro resistente.', 'ARMADURA', 'calca', 2, 'calca_cobre', 80000, 1, NULL, 1, 1),
-                    ('botas_ferro', 'Botas de Ferro', 'Protecao de pes feita em ferro resistente.', 'ARMADURA', 'botas', 2, 'botas_cobre', 80000, 1, NULL, 1, 1),
-                    ('espada_ferro', 'Espada de Ferro', 'Arma de corte intermediaria em ferro.', 'ARMA', 'espada', 2, 'espada_cobre', 70000, 1, NULL, 1, 1),
-                    ('lanca_ferro', 'Lança de Ferro', 'Arma de alcance intermediaria em ferro.', 'ARMA', 'lanca', 2, 'lanca_cobre', 70000, 1, NULL, 1, 1),
-                    ('picareta_ferro', 'Picareta de Ferro', 'Ferramenta de mineracao em ferro.', 'FERRAMENTA', 'picareta', 2, 'picareta_cobre', 70000, 1, NULL, 1, 1),
-                    ('machado_ferro', 'Machado de Ferro', 'Ferramenta de corte de madeira em ferro.', 'FERRAMENTA', 'machado', 2, 'machado_cobre', 70000, 1, NULL, 1, 1),
-                    ('pa_ferro', 'Pá de Ferro', 'Ferramenta de escavacao em ferro.', 'FERRAMENTA', 'pa', 2, 'pa_cobre', 70000, 1, NULL, 1, 1),
-                    ('enxada_ferro', 'Enxada de Ferro', 'Ferramenta de cultivo em ferro.', 'FERRAMENTA', 'enxada', 2, 'enxada_cobre', 70000, 1, NULL, 1, 1),
-
-                    -- Tier 3 - Ouro
-                    ('capacete_ouro', 'Capacete de Ouro', 'Protecao de cabeca ostentacao em ouro.', 'ARMADURA', 'capacete', 3, 'capacete_ferro', 200000, 1, NULL, 1, 1),
-                    ('peitoral_ouro', 'Peitoral de Ouro', 'Protecao de peito ostentacao em ouro.', 'ARMADURA', 'peitoral', 3, 'peitoral_ferro', 200000, 1, NULL, 1, 1),
-                    ('calca_ouro', 'Calça de Ouro', 'Protecao de pernas ostentacao em ouro.', 'ARMADURA', 'calca', 3, 'calca_ferro', 200000, 1, NULL, 1, 1),
-                    ('botas_ouro', 'Botas de Ouro', 'Protecao de pes ostentacao em ouro.', 'ARMADURA', 'botas', 3, 'botas_ferro', 200000, 1, NULL, 1, 1),
-                    ('espada_ouro', 'Espada de Ouro', 'Arma de corte reluzente em ouro.', 'ARMA', 'espada', 3, 'espada_ferro', 175000, 1, NULL, 1, 1),
-                    ('lanca_ouro', 'Lança de Ouro', 'Arma de alcance reluzente em ouro.', 'ARMA', 'lanca', 3, 'lanca_ferro', 175000, 1, NULL, 1, 1),
-                    ('picareta_ouro', 'Picareta de Ouro', 'Ferramenta de mineracao em ouro.', 'FERRAMENTA', 'picareta', 3, 'picareta_ferro', 175000, 1, NULL, 1, 1),
-                    ('machado_ouro', 'Machado de Ouro', 'Ferramenta de corte de madeira em ouro.', 'FERRAMENTA', 'machado', 3, 'machado_ferro', 175000, 1, NULL, 1, 1),
-                    ('pa_ouro', 'Pá de Ouro', 'Ferramenta de escavacao em ouro.', 'FERRAMENTA', 'pa', 3, 'pa_ferro', 175000, 1, NULL, 1, 1),
-                    ('enxada_ouro', 'Enxada de Ouro', 'Ferramenta de cultivo em ouro.', 'FERRAMENTA', 'enxada', 3, 'enxada_ferro', 175000, 1, NULL, 1, 1),
-
-                    -- Tier 4 - Diamante
-                    ('capacete_diamante', 'Capacete de Diamante', 'Protecao de cabeca de alta durabilidade em diamante.', 'ARMADURA', 'capacete', 4, 'capacete_ouro', 400000, 1, NULL, 1, 1),
-                    ('peitoral_diamante', 'Peitoral de Diamante', 'Protecao de peito de alta durabilidade em diamante.', 'ARMADURA', 'peitoral', 4, 'peitoral_ouro', 400000, 1, NULL, 1, 1),
-                    ('calca_diamante', 'Calça de Diamante', 'Protecao de pernas de alta durabilidade em diamante.', 'ARMADURA', 'calca', 4, 'calca_ouro', 400000, 1, NULL, 1, 1),
-                    ('botas_diamante', 'Botas de Diamante', 'Protecao de pes de alta durabilidade em diamante.', 'ARMADURA', 'botas', 4, 'botas_ouro', 400000, 1, NULL, 1, 1),
-                    ('espada_diamante', 'Espada de Diamante', 'Arma de corte avancada em diamante.', 'ARMA', 'espada', 4, 'espada_ouro', 350000, 1, NULL, 1, 1),
-                    ('lanca_diamante', 'Lança de Diamante', 'Arma de alcance avancada em diamante.', 'ARMA', 'lanca', 4, 'lanca_ouro', 350000, 1, NULL, 1, 1),
-                    ('picareta_diamante', 'Picareta de Diamante', 'Ferramenta de mineracao avancada em diamante.', 'FERRAMENTA', 'picareta', 4, 'picareta_ouro', 350000, 1, NULL, 1, 1),
-                    ('machado_diamante', 'Machado de Diamante', 'Ferramenta de corte de madeira avancada em diamante.', 'FERRAMENTA', 'machado', 4, 'machado_ouro', 350000, 1, NULL, 1, 1),
-                    ('pa_diamante', 'Pá de Diamante', 'Ferramenta de escavacao avancada em diamante.', 'FERRAMENTA', 'pa', 4, 'pa_ouro', 350000, 1, NULL, 1, 1),
-                    ('enxada_diamante', 'Enxada de Diamante', 'Ferramenta de cultivo avancada em diamante.', 'FERRAMENTA', 'enxada', 4, 'enxada_ouro', 350000, 1, NULL, 1, 1),
-
-                    -- Tier 5 - Netherite
-                    ('capacete_netherite', 'Capacete de Netherite', 'Protecao suprema de cabeca em netherite.', 'ARMADURA', 'capacete', 5, 'capacete_diamante', 800000, 1, NULL, 1, 1),
-                    ('peitoral_netherite', 'Peitoral de Netherite', 'Protecao suprema de peito em netherite.', 'ARMADURA', 'peitoral', 5, 'peitoral_diamante', 800000, 1, NULL, 1, 1),
-                    ('calca_netherite', 'Calça de Netherite', 'Protecao suprema de pernas em netherite.', 'ARMADURA', 'calca', 5, 'calca_diamante', 800000, 1, NULL, 1, 1),
-                    ('botas_netherite', 'Botas de Netherite', 'Protecao suprema de pes em netherite.', 'ARMADURA', 'botas', 5, 'botas_diamante', 800000, 1, NULL, 1, 1),
-                    ('espada_netherite', 'Espada de Netherite', 'Arma de corte lendaria e suprema em netherite.', 'ARMA', 'espada', 5, 'espada_diamante', 700000, 1, NULL, 1, 1),
-                    ('lanca_netherite', 'Lança de Netherite', 'Arma de alcance lendaria e suprema em netherite.', 'ARMA', 'lanca', 5, 'lanca_diamante', 700000, 1, NULL, 1, 1),
-                    ('picareta_netherite', 'Picareta de Netherite', 'Ferramenta de mineracao suprema em netherite.', 'FERRAMENTA', 'picareta', 5, 'picareta_diamante', 700000, 1, NULL, 1, 1),
-                    ('machado_netherite', 'Machado de Netherite', 'Ferramenta de corte de madeira suprema em netherite.', 'FERRAMENTA', 'machado', 5, 'machado_diamante', 700000, 1, NULL, 1, 1),
-                    ('pa_netherite', 'Pá de Netherite', 'Ferramenta de escavacao suprema em netherite.', 'FERRAMENTA', 'pa', 5, 'pa_diamante', 700000, 1, NULL, 1, 1),
-                    ('enxada_netherite', 'Enxada de Netherite', 'Ferramenta de cultivo suprema em netherite.', 'FERRAMENTA', 'enxada', 5, 'enxada_diamante', 700000, 1, NULL, 1, 1);");
+                    ON YoutubePlataformaResgates (itemId, status);");
 
                 // ------------------------------------------------------------------
                 // Migrações incrementais da tabela de doações
@@ -398,6 +323,7 @@ public class CPHInline
             using (var connection = AbrirConexao(ambiente))
             {
                 int grupoIdExistente = 0;
+
                 string placeholders = string.Join(",", aliases.Select((_, i) => $"@a{i}"));
                 using (var cmd = new SQLiteCommand($"SELECT grupoId FROM YoutubeComandosAudio WHERE comando IN ({placeholders}) COLLATE NOCASE LIMIT 1", connection))
                 {
@@ -470,6 +396,7 @@ public class CPHInline
             using (var connection = AbrirConexao(ambiente))
             {
                 var nomesColunas = colunas.Keys.ToList();
+
                 string listaColunas = string.Join(", ", nomesColunas);
                 string listaValores = string.Join(", ", nomesColunas.Select(c => "@" + c));
                 string listaUpdate = string.Join(", ", nomesColunas.Where(c => c != chaveConflito && !somenteInsercao.Contains(c, StringComparer.OrdinalIgnoreCase)).Select(c => $"{c} = @{c}"));
@@ -646,8 +573,9 @@ public class CPHInline
     public class AudioResumo
     {
         public int GrupoId { get; set; }
-        public string Comando { get; set; }
         public int Custo { get; set; }
+
+        public string Comando { get; set; }
     }
 
     // ==================================================================
@@ -672,7 +600,6 @@ public class CPHInline
             }
 
             Ambiente ambiente = new Ambiente(CPH);
-
             if (!File.Exists(ambiente.CaminhoBanco))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: banco de dados não encontrado para SaldoMoedasUsuario.");
@@ -686,8 +613,9 @@ public class CPHInline
                     ? "SELECT userName, coinBalance, lastCoinAt FROM YoutubeUsuariosMoeda WHERE userId = @chave"
                     : "SELECT userName, coinBalance, lastCoinAt FROM YoutubeUsuariosMoeda WHERE userName = @chave COLLATE NOCASE";
 
-                string nomeExibido = null;
                 int? moedasUsuario = null;
+
+                string nomeExibido = null;
                 string ultimoCredito = null;
 
                 using (var cmd = new SQLiteCommand(selectSql, connection))
@@ -749,7 +677,6 @@ public class CPHInline
             }
 
             Ambiente ambiente = new Ambiente(CPH);
-
             if (!File.Exists(ambiente.CaminhoBanco))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: banco de dados não encontrado para ConsultarTopMoedas.");
@@ -772,9 +699,11 @@ public class CPHInline
                         int? saldoAnterior = null;
                         int rankAnterior = 0;
                         int posicao = 0;
+
                         while (reader.Read())
                         {
                             posicao++;
+
                             int saldo = Convert.ToInt32(reader["coinBalance"]);
                             int rank = (saldoAnterior.HasValue && saldo == saldoAnterior.Value) ? rankAnterior : posicao;
 
@@ -808,9 +737,15 @@ public class CPHInline
     // ------------------------------------------------------------------
     public bool AdicionarMoedasUsuario()
     {
-        string creditoStatus = "falhou";
+        CPH.TryGetArg("adicionarOperacaoId", out string operacaoId);
+        CPH.SetArgument("adicionarBancoInicioId", operacaoId);
+        CPH.SetArgument("adicionarBancoRespostaId", "");
+        CPH.SetArgument("adicionarBancoConcluido", false);
+
         bool commitIniciado = false;
         bool commitConfirmado = false;
+
+        string creditoStatus = "falhou";
 
         try
         {
@@ -839,7 +774,6 @@ public class CPHInline
             }
 
             Ambiente ambiente = new Ambiente(CPH);
-
             if (!File.Exists(ambiente.CaminhoBanco))
             {
                 CPH.SetArgument("adicionarErro", "Banco de dados não encontrado.");
@@ -857,7 +791,6 @@ public class CPHInline
                     // nenhum registro existente — cobre casos em que o YouTube manda um userId
                     // diferente do que já está salvo (não só quando o userId vem vazio).
                     string destinatarioId = userId;
-
                     if (!string.IsNullOrEmpty(destinatarioId) && !UserIdExiste(connection, destinatarioId) && !string.IsNullOrEmpty(userName))
                     {
                         string idPeloNome = BuscarUserIdPorNome(connection, userName);
@@ -943,12 +876,13 @@ public class CPHInline
                         try
                         {
                             RollbackTransacao(connection);
-                            if (!commitIniciado) creditoStatus = "falhou";
+                            if (!commitIniciado)
+                                creditoStatus = "falhou";
                         }
                         catch (Exception rollbackEx)
                         {
                             creditoStatus = "incerto";
-                            CPH.LogError(">>> [GERENTE_DB] ERRO ao desfazer crédito de moedas: " + rollbackEx.Message);
+                            CPH.LogError(">>> [GERENTE_DB] ERRO ao desfazer crédito de moedas: " + rollbackEx.ToString());
                         }
                     }
                     throw;
@@ -959,11 +893,16 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_DB] ERRO ao adicionar moedas: " + ex.Message);
+            CPH.LogError(">>> [GERENTE_DB] ERRO ao adicionar moedas: " + ex.ToString());
             CPH.SetArgument("adicionarCreditoStatus", creditoStatus);
-            CPH.SetArgument("adicionarErro", ex.Message);
+            CPH.SetArgument("adicionarErro", ex.ToString());
             CPH.SetArgument("adicionarResultado", "Erro");
             return false;
+        }
+        finally
+        {
+            CPH.SetArgument("adicionarBancoRespostaId", operacaoId);
+            CPH.SetArgument("adicionarBancoConcluido", true);
         }
     }
 
@@ -977,7 +916,6 @@ public class CPHInline
             CPH.TryGetArg("transferirRemetenteUserId", out string remetenteUserId);
             CPH.TryGetArg("transferirDestinatarioNome", out string destinatarioNome);
             CPH.TryGetArg("transferirQuantidade", out int quantidade);
-
             if (string.IsNullOrEmpty(remetenteUserId) || string.IsNullOrEmpty(destinatarioNome) || quantidade <= 0)
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros inválidos para TransferirMoedasUsuario.");
@@ -1076,7 +1014,8 @@ public class CPHInline
         {
             cmd.Parameters.AddWithValue("@userId", userId);
             var resultado = cmd.ExecuteScalar();
-            if (resultado == null || resultado == DBNull.Value) return null;
+            if (resultado == null || resultado == DBNull.Value)
+                return null;
             return DateTime.Parse(resultado.ToString());
         }
     }
@@ -1087,8 +1026,9 @@ public class CPHInline
     public class TopMoedaItem
     {
         public int Rank { get; set; }
-        public string NomeExibido { get; set; }
         public int Moedas { get; set; }
+
+        public string NomeExibido { get; set; }
     }
 
     // ==================================================================
@@ -1204,9 +1144,11 @@ public class CPHInline
                 try
                 {
                     int predictionId = 0;
+
                     string optionsRaw = null;
                     string endsAtRaw = null;
                     string agora = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
                     using (var cmd = new SQLiteCommand("SELECT id, options, endsAt FROM YoutubePalpites WHERE status = 'open' ORDER BY id DESC LIMIT 1", connection))
                     using (var reader = cmd.ExecuteReader())
                     {
@@ -1233,6 +1175,7 @@ public class CPHInline
                     }
 
                     var options = optionsRaw.Split(';');
+
                     int indiceOpcao = option[0] - 'a';
                     if (indiceOpcao < 0 || indiceOpcao >= options.Length)
                     {
@@ -1253,6 +1196,7 @@ public class CPHInline
                     int totalUsuario = valor;
 
                     string chosenOptionExistente = null;
+
                     using (var cmd = new SQLiteCommand("SELECT chosenOption FROM YoutubePalpiteRespostas WHERE predictionId = @predictionId AND userId = @userId", connection))
                     {
                         cmd.Parameters.AddWithValue("@predictionId", predictionId);
@@ -1346,7 +1290,8 @@ public class CPHInline
         try
         {
             CPH.TryGetArg("verificarEncerramentoIntervaloSegundos", out int intervaloSegundos);
-            if (intervaloSegundos <= 0) intervaloSegundos = 3;
+            if (intervaloSegundos <= 0)
+                intervaloSegundos = 3;
 
             Ambiente ambiente = new Ambiente(CPH);
 
@@ -1356,6 +1301,7 @@ public class CPHInline
                 string janelaInicio = DateTime.Now.AddSeconds(-intervaloSegundos).ToString("yyyy-MM-dd HH:mm:ss");
 
                 int predictionId = 0;
+
                 string description = null;
                 string optionsRaw = null;
 
@@ -1417,7 +1363,6 @@ public class CPHInline
         try
         {
             CPH.TryGetArg("resolverPalpiteOpcaoVencedora", out string opcaoVencedora);
-
             if (string.IsNullOrEmpty(opcaoVencedora))
             {
                 CPH.LogError(">>> [GERENTE_DB] ERRO: parâmetros inválidos para ResolverPalpite.");
@@ -1434,8 +1379,10 @@ public class CPHInline
                 try
                 {
                     int predictionId = 0;
+
                     string description = null;
                     string optionsRaw = null;
+
                     using (var cmd = new SQLiteCommand("SELECT id, description, options FROM YoutubePalpites WHERE status = 'open' ORDER BY id DESC LIMIT 1", connection))
                     using (var reader = cmd.ExecuteReader())
                     {
@@ -1455,6 +1402,7 @@ public class CPHInline
                     }
 
                     var options = optionsRaw.Split(';');
+
                     int indiceOpcao = opcaoVencedora[0] - 'a';
                     if (indiceOpcao < 0 || indiceOpcao >= options.Length)
                     {
@@ -1464,6 +1412,7 @@ public class CPHInline
                     }
 
                     var vencedores = new List<ApostaVencedora>();
+
                     int poteTotal = 0;
                     int poteVencedores = 0;
 
@@ -1477,6 +1426,7 @@ public class CPHInline
                                 string userId = reader["userId"].ToString();
                                 string userName = reader["userName"].ToString();
                                 string chosenOption = reader["chosenOption"].ToString();
+
                                 int betAmount = Convert.ToInt32(reader["betAmount"]);
 
                                 poteTotal += betAmount;
@@ -1510,8 +1460,8 @@ public class CPHInline
                     // Ordena pelo valor apostado; em empate, preserva a ordem crescente de betAt.
                     // betAt é atualizado a cada aposta adicional; o primeiro recebe a sobra do arredondamento.
                     var vencedoresOrdenados = vencedores.OrderByDescending(v => v.BetAmount).ToList();
-
                     var pagamentos = new Dictionary<string, int>();
+
                     int totalDistribuido = 0;
                     foreach (var vencedor in vencedoresOrdenados)
                     {
@@ -1657,9 +1607,10 @@ public class CPHInline
     // ------------------------------------------------------------------
     private class ApostaVencedora
     {
+        public int BetAmount { get; set; }
+
         public string UserId { get; set; }
         public string UserName { get; set; }
-        public int BetAmount { get; set; }
     }
 
     // ==================================================================
@@ -1682,7 +1633,6 @@ public class CPHInline
             CPH.TryGetArg("doacaoDupTier", out string tier);
 
             Ambiente ambiente = new Ambiente(CPH);
-
             if (!File.Exists(ambiente.CaminhoBanco))
             {
                 CPH.SetArgument("doacaoDuplicidadeErro", "Banco de dados não encontrado.");
@@ -1693,7 +1643,6 @@ public class CPHInline
             {
                 TimeSpan janelaDedup = TimeSpan.FromSeconds(15); // Janela usada na consulta de duplicidade
                 string limiteTimestamp = DateTime.Now.Subtract(janelaDedup).ToString("yyyy-MM-dd HH:mm:ss");
-
                 string sql = @"SELECT COUNT(*) FROM YoutubeDoacoes
                                 WHERE userId = @userId
                                   AND broadcastUserId = @broadcastUserId
@@ -1753,7 +1702,6 @@ public class CPHInline
             CPH.TryGetArg("doacaoBroadcastId", out string broadcastId);
             CPH.TryGetArg("doacaoMessageId", out string messageId);
             CPH.TryGetArg("doacaoTimestamp", out string timestamp);
-
             if (string.IsNullOrEmpty(timestamp))
             {
                 timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
@@ -1827,7 +1775,6 @@ public class CPHInline
             }
 
             Ambiente ambiente = new Ambiente(CPH);
-
             if (!File.Exists(ambiente.CaminhoBanco))
             {
                 CPH.SetArgument("metaProgressoMensal", 0);
@@ -1845,6 +1792,7 @@ public class CPHInline
                 {
                     cmd.Parameters.AddWithValue("@broadcastUserName", broadcastUserName);
                     var resultado = cmd.ExecuteScalar();
+
                     int progresso = resultado != null ? Convert.ToInt32(resultado) : 0;
                     CPH.SetArgument("metaProgressoMensal", progresso);
                 }
@@ -1908,6 +1856,7 @@ public class CPHInline
                 }
 
                 int dias = ContarDiasPresenca(connection, userId, desde);
+
                 string nomeResolvido = BuscarUserNamePorId(connection, userId);
 
                 CPH.SetArgument("presencaEncontrado", dias > 0);
@@ -1971,7 +1920,6 @@ public class CPHInline
             using (var connection = AbrirConexao(ambiente))
             {
                 string userId = BuscarUserIdPorNome(connection, userName);
-
                 if (string.IsNullOrEmpty(userId))
                 {
                     CPH.SetArgument("perfilResultado", "UsuarioNaoEncontrado");
@@ -2116,7 +2064,6 @@ public class CPHInline
         try
         {
             CPH.TryGetArg("plataformaConsultarItem", out string item);
-
             if (string.IsNullOrEmpty(item))
             {
                 CPH.SetArgument("plataformaItemEncontrado", false);
@@ -2128,7 +2075,6 @@ public class CPHInline
             using (var connection = AbrirConexao(ambiente))
             {
                 PlataformaItem itemCatalogo = BuscarItemPlataforma(connection, item);
-
                 if (itemCatalogo == null || !itemCatalogo.Visivel)
                 {
                     CPH.SetArgument("plataformaItemEncontrado", false);
@@ -2203,7 +2149,6 @@ public class CPHInline
                 try
                 {
                     PlataformaItem itemCatalogo = BuscarItemPlataforma(connection, item);
-
                     if (itemCatalogo == null)
                     {
                         RollbackTransacao(connection);
@@ -2267,11 +2212,11 @@ public class CPHInline
                     using (var cmd = new SQLiteCommand(@"SELECT COUNT(*)
                             FROM YoutubePlataformaResgates
                         WHERE userId = @userId
-                            AND item = @item
+                            AND itemId = @itemId
                             AND status = 'APROVADO';", connection))
                     {
                         cmd.Parameters.AddWithValue("@userId", userId);
-                        cmd.Parameters.AddWithValue("@item", itemCatalogo.Item);
+                        cmd.Parameters.AddWithValue("@itemId", itemCatalogo.Id);
 
                         quantidadeJaResgatada = Convert.ToInt32(cmd.ExecuteScalar());
                     }
@@ -2287,19 +2232,19 @@ public class CPHInline
                     }
 
                     // Valida o pré-requisito do item
-                    if (!string.IsNullOrEmpty(itemCatalogo.ItemPrerequisito))
+                    if (itemCatalogo.ItemPrerequisitoId.HasValue)
                     {
                         bool possuiPrerequisito;
 
                         using (var cmd = new SQLiteCommand(@"SELECT 1
                                 FROM YoutubePlataformaResgates
                             WHERE userId = @userId
-                                AND item = @itemPrerequisito
+                                AND itemId = @itemPrerequisitoId
                                 AND status = 'APROVADO'
                             LIMIT 1;", connection))
                         {
                             cmd.Parameters.AddWithValue("@userId", userId);
-                            cmd.Parameters.AddWithValue("@itemPrerequisito", itemCatalogo.ItemPrerequisito);
+                            cmd.Parameters.AddWithValue("@itemPrerequisitoId", itemCatalogo.ItemPrerequisitoId.Value);
 
                             possuiPrerequisito = cmd.ExecuteScalar() != null;
                         }
@@ -2336,11 +2281,11 @@ public class CPHInline
 
                         using (var cmd = new SQLiteCommand(@"UPDATE YoutubePlataformaItens
                                 SET estoqueGlobal = estoqueGlobal - 1
-                            WHERE item = @item
+                            WHERE id = @itemId
                                 AND estoqueGlobal IS NOT NULL
                                 AND estoqueGlobal > 0;", connection))
                         {
-                            cmd.Parameters.AddWithValue("@item", itemCatalogo.Item);
+                            cmd.Parameters.AddWithValue("@itemId", itemCatalogo.Id);
                             linhasEstoque = cmd.ExecuteNonQuery();
                         }
 
@@ -2356,15 +2301,15 @@ public class CPHInline
                     long resgateId;
 
                     using (var cmd = new SQLiteCommand(@"INSERT INTO YoutubePlataformaResgates
-                            (userId, userName, item, valorBase, percentualDesconto, nivelMembro, valorPago, status, origem, metadata, versaoRegra, timestamp)
+                            (userId, userName, itemId, valorBase, percentualDesconto, nivelMembro, valorPago, status, origem, metadata, versaoRegra, timestamp)
                         VALUES
-                            (@userId, @userName, @item, @valorBase, @percentualDesconto, @nivelMembro, @valorPago, 'APROVADO', @origem, @metadata, @versaoRegra, @timestamp);
+                            (@userId, @userName, @itemId, @valorBase, @percentualDesconto, @nivelMembro, @valorPago, 'APROVADO', @origem, @metadata, @versaoRegra, @timestamp);
 
                         SELECT last_insert_rowid();", connection))
                     {
                         cmd.Parameters.AddWithValue("@userId", userId);
                         cmd.Parameters.AddWithValue("@userName", userName);
-                        cmd.Parameters.AddWithValue("@item", itemCatalogo.Item);
+                        cmd.Parameters.AddWithValue("@itemId", itemCatalogo.Id);
                         cmd.Parameters.AddWithValue("@valorBase", itemCatalogo.Valor);
                         cmd.Parameters.AddWithValue("@percentualDesconto", percentualDesconto);
                         cmd.Parameters.AddWithValue("@nivelMembro", (object)nivelMembro ?? DBNull.Value);
@@ -2412,7 +2357,6 @@ public class CPHInline
         try
         {
             CPH.TryGetArg("plataformaEstornoResgateId", out long resgateId);
-
             if (resgateId <= 0)
             {
                 CPH.SetArgument("plataformaEstornoResultado", "ParametrosInvalidos");
@@ -2427,11 +2371,13 @@ public class CPHInline
 
                 try
                 {
-                    string userId = null;
-                    string item = null;
                     int valorPago = 0;
 
-                    using (var cmd = new SQLiteCommand(@"SELECT userId, item, valorPago
+                    long itemId = 0;
+
+                    string userId = null;
+
+                    using (var cmd = new SQLiteCommand(@"SELECT userId, itemId, valorPago
                             FROM YoutubePlataformaResgates
                         WHERE id = @id
                             AND status = 'APROVADO'
@@ -2444,7 +2390,7 @@ public class CPHInline
                             if (reader.Read())
                             {
                                 userId = reader["userId"].ToString();
-                                item = reader["item"].ToString();
+                                itemId = Convert.ToInt64(reader["itemId"]);
                                 valorPago = Convert.ToInt32(reader["valorPago"]);
                             }
                         }
@@ -2483,10 +2429,10 @@ public class CPHInline
                     // Devolve uma unidade ao estoque global, quando limitado
                     using (var cmd = new SQLiteCommand(@"UPDATE YoutubePlataformaItens
                             SET estoqueGlobal = estoqueGlobal + 1
-                        WHERE item = @item
+                        WHERE id = @itemId
                             AND estoqueGlobal IS NOT NULL;", connection))
                     {
-                        cmd.Parameters.AddWithValue("@item", item);
+                        cmd.Parameters.AddWithValue("@itemId", itemId);
                         cmd.ExecuteNonQuery();
                     }
 
@@ -2527,13 +2473,14 @@ public class CPHInline
     // ------------------------------------------------------------------
     private PlataformaItem BuscarItemPlataforma(SQLiteConnection connection, string item)
     {
-        using (var cmd = new SQLiteCommand(@"SELECT item,
+        using (var cmd = new SQLiteCommand(@"SELECT id, item,
                     nomeExibicao,
                     descricao,
                     categoria,
                     slot,
                     tier,
-                    itemPrerequisito,
+                    itemPrerequisitoId,
+                    (SELECT p.item FROM YoutubePlataformaItens p WHERE p.id = YoutubePlataformaItens.itemPrerequisitoId) AS itemPrerequisito,
                     valor,
                     limiteMaximo,
                     estoqueGlobal,
@@ -2552,6 +2499,8 @@ public class CPHInline
 
                 return new PlataformaItem
                 {
+                    Id = Convert.ToInt64(reader["id"]),
+                    ItemPrerequisitoId = reader["itemPrerequisitoId"] == DBNull.Value ? (long?)null : Convert.ToInt64(reader["itemPrerequisitoId"]),
                     Item = reader["item"].ToString(),
                     NomeExibicao = reader["nomeExibicao"].ToString(),
                     Descricao = reader["descricao"].ToString(),
@@ -2574,16 +2523,22 @@ public class CPHInline
     // ------------------------------------------------------------------
     public class PlataformaItem
     {
+        public int Tier { get; set; }
+        public int Valor { get; set; }
+        public int LimiteMaximo { get; set; }
+        public int? EstoqueGlobal { get; set; }
+
+        public long Id { get; set; }
+        public long? ItemPrerequisitoId { get; set; }
+
         public string Item { get; set; }
         public string NomeExibicao { get; set; }
         public string Descricao { get; set; }
         public string Categoria { get; set; }
         public string Slot { get; set; }
-        public int Tier { get; set; }
+        // Nome técnico atual do pré-requisito, somente para exibição no chat.
         public string ItemPrerequisito { get; set; }
-        public int Valor { get; set; }
-        public int LimiteMaximo { get; set; }
-        public int? EstoqueGlobal { get; set; }
+
         public bool Ativo { get; set; }
         public bool Visivel { get; set; }
     }

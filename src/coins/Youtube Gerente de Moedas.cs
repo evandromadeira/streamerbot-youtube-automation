@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261003.0945
+// Atualização 261005.1745
 public class CPHInline
 {
     public bool SaldoMoedasUsuario()
     {
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
                 CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
@@ -18,8 +18,11 @@ public class CPHInline
             Evento evento = contexto.Evento;
 
             string[] partesComando = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+
             string mensagem = partesComando.Length > 1 ? partesComando[1].Replace("@", "").Trim() : "";
+
             bool consultaPropria = string.IsNullOrEmpty(mensagem);
+
             string nomeConsultado = consultaPropria ? evento.UserName : mensagem;
 
             CPH.SetArgument("consultarChave", consultaPropria ? evento.UserId : nomeConsultado);
@@ -66,7 +69,7 @@ public class CPHInline
     {
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
                 CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
@@ -100,8 +103,8 @@ public class CPHInline
             }
 
             CPH.TryGetArg("topMoedasResultadoJson", out string resultadoJson);
-            var itens = string.IsNullOrEmpty(resultadoJson) ? null : JsonConvert.DeserializeObject<List<TopMoedaItem>>(resultadoJson);
 
+            var itens = string.IsNullOrEmpty(resultadoJson) ? null : JsonConvert.DeserializeObject<List<TopMoedaItem>>(resultadoJson);
             if (itens == null || itens.Count == 0)
             {
                 CPH.SendYouTubeMessage("ℹ Ainda não há moedas registradas.");
@@ -122,9 +125,11 @@ public class CPHInline
     private void EnviarTopMoedas(List<TopMoedaItem> itens)
     {
         const string prefixo = "Top Moedas: ";
+
         const int limiteCaracteres = 200;
 
         var mensagens = new List<string>();
+
         string mensagemAtual = prefixo;
 
         foreach (var item in itens)
@@ -139,7 +144,6 @@ public class CPHInline
 
             string trecho = $"{medalha}(#{item.Rank}) - @{item.NomeExibido}: {item.Moedas:N0} |";
             string candidata = mensagemAtual == prefixo ? prefixo + trecho : mensagemAtual + " " + trecho;
-
             if (candidata.Length > limiteCaracteres)
             {
                 mensagens.Add(mensagemAtual);
@@ -164,6 +168,8 @@ public class CPHInline
     public bool AdicionarMoedasUsuario()
     {
         string origem = "";
+        string operacaoId = Guid.NewGuid().ToString("D");
+
         bool bancoChamado = false;
 
         try
@@ -172,6 +178,10 @@ public class CPHInline
 
             origem = string.IsNullOrEmpty(origem) ? "chat_adicionar" : origem;
 
+            CPH.SetArgument("adicionarOperacaoId", operacaoId);
+            CPH.SetArgument("adicionarBancoInicioId", "");
+            CPH.SetArgument("adicionarBancoRespostaId", "");
+            CPH.SetArgument("adicionarBancoConcluido", false);
             CPH.SetArgument("adicionarCreditoStatus", "falhou");
             CPH.SetArgument("adicionarErro", "");
             CPH.SetArgument("adicionarResultado", "");
@@ -208,7 +218,7 @@ public class CPHInline
             }
             else if (origem == "chat_adicionar")
             {
-                var contexto = ObterContexto();
+                Contexto contexto = ObterContexto();
                 if (contexto?.Evento == null)
                 {
                     CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
@@ -255,22 +265,28 @@ public class CPHInline
             CPH.SetArgument("adicionarUserName", targetUserName);
             CPH.SetArgument("adicionarQuantidade", coinsToAdd);
             CPH.SetArgument("adicionarCooldownMinutos", cooldownMinutos);
-
             CPH.SetArgument("adicionarCreditoStatus", "incerto");
+
             bancoChamado = true;
+
             bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "AdicionarMoedasUsuario");
+
+            ValidarRespostaCredito(operacaoId);
+
             CPH.TryGetArg("adicionarCreditoStatus", out string creditoStatus);
 
             if (!executou)
             {
                 CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: falha ao adicionar moedas por comando.");
-                if (origem != "doacao" && origem != "importacao" && origem != "moedas_surpresa") CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
+                if (origem != "doacao" && origem != "importacao" && origem != "moedas_surpresa")
+                    CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
                 return (origem == "doacao" || origem == "importacao" || origem == "moedas_surpresa") && creditoStatus == "creditado";
             }
 
             CPH.TryGetArg("adicionarResultado", out string resultado);
 
-            if (origem == "doacao" || origem == "importacao" || origem == "moedas_surpresa") return creditoStatus == "creditado";
+            if (origem == "doacao" || origem == "importacao" || origem == "moedas_surpresa")
+                return creditoStatus == "creditado";
 
             if (origem == "chat_adicionar")
             {
@@ -297,22 +313,57 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao adicionar moedas: " + ex.Message);
+            CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao adicionar moedas: " + ex);
+            if (bancoChamado)
+                ValidarRespostaCredito(operacaoId);
+
             CPH.TryGetArg("adicionarCreditoStatus", out string creditoStatus);
-            if (!bancoChamado) creditoStatus = "falhou";
-            else if (creditoStatus != "creditado" && creditoStatus != "falhou") creditoStatus = "incerto";
+            if (!bancoChamado)
+                creditoStatus = "falhou";
+            else if (creditoStatus != "creditado" && creditoStatus != "falhou")
+                creditoStatus = "incerto";
+
             CPH.SetArgument("adicionarCreditoStatus", creditoStatus);
-            CPH.SetArgument("adicionarErro", ex.Message);
-            if (origem != "doacao" && origem != "importacao" && origem != "moedas_surpresa") CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
+            CPH.SetArgument("adicionarErro", ex.ToString());
+
+            if (origem != "doacao" && origem != "importacao" && origem != "moedas_surpresa")
+                CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
             return (origem == "doacao" || origem == "importacao" || origem == "moedas_surpresa") && creditoStatus == "creditado";
         }
+    }
+
+    private void ValidarRespostaCredito(string operacaoId)
+    {
+        CPH.TryGetArg("adicionarBancoInicioId", out string inicioId);
+        CPH.TryGetArg("adicionarBancoRespostaId", out string respostaId);
+        CPH.TryGetArg("adicionarBancoConcluido", out bool concluido);
+        CPH.TryGetArg("adicionarResultado", out string resultado);
+        CPH.TryGetArg("adicionarCreditoStatus", out string status);
+        CPH.TryGetArg("adicionarErro", out string erro);
+        CPH.TryGetArg("adicionarUserId", out string usuarioId);
+        CPH.TryGetArg("adicionarUserName", out string usuario);
+        CPH.TryGetArg("adicionarQuantidade", out int quantidade);
+        CPH.TryGetArg("adicionarOrigem", out string origem);
+        CPH.TryGetArg("adicionarBroadcastUserId", out string canalId);
+        CPH.TryGetArg("adicionarBroadcastUserName", out string canal);
+
+        bool respostaValida = inicioId == operacaoId && respostaId == operacaoId && concluido && !string.IsNullOrEmpty(resultado) && (status == "creditado" || status == "falhou" || status == "incerto");
+        if (!respostaValida)
+        {
+            CPH.SetArgument("adicionarCreditoStatus", "incerto");
+            CPH.SetArgument("adicionarResultado", "RespostaIncompleta");
+            CPH.SetArgument("adicionarErro", $"Resposta de crédito incompleta ou de outra operação. Operação={operacaoId}; início={inicioId}; resposta={respostaId}; concluído={concluido}; status={status}; resultado={resultado}; erro={erro}");
+        }
+
+        if (!respostaValida || (status != "creditado" && resultado != "EmCooldown") || !string.IsNullOrEmpty(erro))
+            CPH.LogError($">>> [GERENTE_MOEDAS] DIAGNOSTICO_CREDITO {JsonConvert.SerializeObject(new { operacaoId, inicioId, respostaId, concluido, respostaValida, origem, usuarioId, usuario, quantidade, canalId, canal, statusRecebido = status, resultadoRecebido = resultado, erro })}");
     }
 
     public bool RecompensarAtividadeChat()
     {
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
                 CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
@@ -324,8 +375,10 @@ public class CPHInline
             int cooldownMinutos = 10;
             int multiplicador = 1;
 
-            if (evento.IsSpo) multiplicador++;
-            if (evento.IsSub) multiplicador++;
+            if (evento.IsSpo)
+                multiplicador++;
+            if (evento.IsSub)
+                multiplicador++;
 
             moedasPorMensagem *= multiplicador;
 
@@ -356,7 +409,7 @@ public class CPHInline
     {
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
                 CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
@@ -430,11 +483,6 @@ public class CPHInline
         }
     }
 
-    public class Contexto
-    {
-        public Evento Evento { get; set; }
-    }
-
     private Contexto ObterContexto()
     {
         CPH.TryGetArg("contextoJson", out string contextoJson);
@@ -444,23 +492,29 @@ public class CPHInline
         return JsonConvert.DeserializeObject<Contexto>(contextoJson);
     }
 
+    public class TopMoedaItem
+    {
+        public int Rank { get; set; }
+        public int Moedas { get; set; }
+
+        public string NomeExibido { get; set; }
+    }
+
+    public class Contexto
+    {
+        public Evento Evento { get; set; }
+    }
+
     public class Evento
     {
-        public bool IsSub { get; set; }
-        public bool IsSpo { get; set; }
-        public bool IsMod { get; set; }
-
         public string UserId { get; set; }
         public string UserName { get; set; }
         public string MessageText { get; set; }
         public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
-    }
 
-    public class TopMoedaItem
-    {
-        public int Rank { get; set; }
-        public string NomeExibido { get; set; }
-        public int Moedas { get; set; }
+        public bool IsSub { get; set; }
+        public bool IsSpo { get; set; }
+        public bool IsMod { get; set; }
     }
 }
