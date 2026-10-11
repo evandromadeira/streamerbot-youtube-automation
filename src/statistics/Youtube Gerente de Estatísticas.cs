@@ -1,9 +1,54 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260922.1110
+// Atualização 261011.2020
 public class CPHInline
 {
+    private const string Prefixo = "[GERENTE_DE_ESTATISTICAS] ";
+
+    public bool Execute()
+    {
+        return ReceberInscritosStudio();
+    }
+
+    public bool ReceberInscritosStudio()
+    {
+        try
+        {
+            CPH.TryGetArg("inscritosJson", out string inscritosJson);
+            if (string.IsNullOrWhiteSpace(inscritosJson))
+            {
+                throw new ArgumentException("Contagem do Studio ausente.");
+            }
+
+            string broadcastUserId = CPH.YouTubeGetBroadcaster()?.UserId ?? "";
+
+            ContagemInscritos contagem = JsonConvert.DeserializeObject<ContagemInscritos>(inscritosJson);
+            if (contagem == null || string.IsNullOrWhiteSpace(broadcastUserId) || contagem.CanalId != broadcastUserId || !contagem.Total.HasValue || contagem.Total.Value < 0)
+            {
+                throw new ArgumentException("Canal ou contagem do Studio inválidos.");
+            }
+
+            // ------------------------------------------------------------------
+            // Youtube Gerente de OBS: atualiza o contador de inscritos.
+            // ------------------------------------------------------------------
+            CPH.SetArgument("inscritosJson", JsonConvert.SerializeObject(contagem));
+
+            if (!CPH.ExecuteMethod("Youtube Gerente de OBS", "AtualizarContadorInscritos"))
+            {
+                LogError("Não foi possível atualizar o contador de inscritos no OBS.");
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogError("Erro ao atualizar inscritos: " + ex.Message);
+            return false;
+        }
+    }
+
     public bool ConsultarPresenca()
     {
         return ConsultarPresencaBase("ObterDiasDePresenca", "");
@@ -18,19 +63,20 @@ public class CPHInline
     {
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE_DE_ESTATISTICAS] ERRO: contexto inválido.");
+                LogError("ERRO: contexto inválido.");
                 return false;
             }
+
             Evento evento = contexto.Evento;
 
             string mensagem = evento.MessageText ?? "";
-            string[] partes = mensagem.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
             string userIdConsulta = null;
             string userNameConsulta;
+
+            string[] partes = mensagem.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
             if (partes.Length > 1)
             {
@@ -42,13 +88,20 @@ public class CPHInline
                 userNameConsulta = evento.UserName;
             }
 
+            // ------------------------------------------------------------------
+            // Youtube Gerente de Banco de Dados: consulta os dias de presença.
+            // ------------------------------------------------------------------
             CPH.SetArgument("presencaUserId", userIdConsulta ?? "");
             CPH.SetArgument("presencaUserName", userNameConsulta ?? "");
+
+            CPH.SetArgument("presencaEncontrado", false);
+            CPH.SetArgument("presencaDias", 0);
+            CPH.SetArgument("presencaUserNameResolvido", "");
 
             bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", metodoBanco);
             if (!executou)
             {
-                CPH.LogError(">>> [GERENTE_DE_ESTATISTICAS] ERRO: falha ao consultar dias de presença.");
+                LogError("ERRO: falha ao consultar dias de presença.");
                 return false;
             }
 
@@ -57,7 +110,6 @@ public class CPHInline
             CPH.TryGetArg("presencaUserNameResolvido", out string nomeResolvido);
 
             string nomeExibicao = !string.IsNullOrEmpty(nomeResolvido) ? nomeResolvido : userNameConsulta;
-
             string resposta = (!encontrado || dias == 0)
                 ? $"@{nomeExibicao} ainda não te vi por aqui{sufixoMensagem}! 👀"
                 : $"@{nomeExibicao} já participou de {dias} live{(dias > 1 ? "s" : "")}{sufixoMensagem}! 🎥";
@@ -68,7 +120,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [GERENTE_DE_ESTATISTICAS] ERRO CRÍTICO: {ex.Message}");
+            LogError($"ERRO CRÍTICO: {ex.Message}");
             return false;
         }
     }
@@ -77,9 +129,23 @@ public class CPHInline
     {
         CPH.TryGetArg("contextoJson", out string contextoJson);
         if (string.IsNullOrEmpty(contextoJson))
+        {
             return null;
+        }
 
         return JsonConvert.DeserializeObject<Contexto>(contextoJson);
+    }
+
+    private void LogError(string mensagem)
+    {
+        CPH.LogError(Prefixo + mensagem);
+    }
+
+    public class ContagemInscritos
+    {
+        public long? Total { get; set; }
+
+        public string CanalId { get; set; }
     }
 
     public class Contexto
