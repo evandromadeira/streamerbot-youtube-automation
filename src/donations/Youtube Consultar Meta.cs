@@ -1,29 +1,38 @@
 using System;
-using Newtonsoft.Json;
 
-// Atualização 261003.1020
+// Atualização 261012.1030
 public class CPHInline
 {
+    private const int MetaPrimeiraLiveMadeira = 60000;
+    private const int MetaSegundaLiveMadeira = 120000;
+    private const int MetaBaseRapha = 60000;
+    private const int PontosPorHoraExtraRapha = 5000;
+    private const int MaxHorasSegundaLiveRapha = 12;
+
+    private const string Prefixo = "[CONSULTAR_META] ";
+
     public bool Execute()
     {
         try
         {
-            var contexto = ObterContexto();
-            if (contexto?.Evento == null)
+            string broadcastUserName = CPH.YouTubeGetBroadcaster()?.UserName;
+            if (string.IsNullOrWhiteSpace(broadcastUserName))
             {
-                CPH.LogError(">>> [META] ERRO: não foi possível ler o contexto do evento.");
+                LogError("ERRO: não foi possível obter o nome do canal conectado.");
+                CPH.SendYouTubeMessage("❌ Não foi possível consultar a meta. Tente novamente.", false);
                 return false;
             }
 
-            Evento evento = contexto.Evento;
+            bool consultou = false;
 
             int progressoMensal = 0;
-            bool consultou = false;
+
             for (int tentativa = 1; tentativa <= 3; tentativa++)
             {
-                CPH.SetArgument("metaBroadcastUserName", evento.BroadcastUserName);
+                CPH.SetArgument("metaBroadcastUserName", broadcastUserName);
                 CPH.SetArgument("metaConsultaSucesso", false);
                 CPH.SetArgument("metaProgressoMensal", null);
+
                 try
                 {
                     bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ObterProgressoMeta");
@@ -32,30 +41,37 @@ public class CPHInline
                 }
                 catch (Exception ex)
                 {
-                    CPH.LogWarn($">>> [META] Tentativa {tentativa}/3 lançou erro: {ex.Message}");
+                    LogWarn($"Tentativa {tentativa}/3 lançou erro: {ex.Message}");
                 }
 
-                if (consultou) break;
-                CPH.LogWarn($">>> [META] Consulta sem sucesso: canal '{evento.BroadcastUserName}', tentativa {tentativa}/3.");
-                if (tentativa < 3) CPH.Wait(500);
+                if (consultou)
+                {
+                    break;
+                }
+
+                LogWarn($"Consulta sem sucesso: canal '{broadcastUserName}', tentativa {tentativa}/3.");
+                if (tentativa < 3)
+                {
+                    CPH.Wait(500);
+                }
             }
 
             if (!consultou)
             {
-                CPH.LogError($">>> [META] Consulta da meta falhou após 3 tentativas para o canal '{evento.BroadcastUserName}'.");
+                LogError($"Consulta da meta falhou após 3 tentativas para o canal '{broadcastUserName}'.");
                 CPH.SendYouTubeMessage("❌ Não foi possível consultar a meta. Tente novamente.", false);
                 return false;
             }
 
-            string mensagem = MontarMensagem(evento.BroadcastUserName, progressoMensal);
+            string mensagem = MontarMensagem(broadcastUserName, progressoMensal);
 
             CPH.SendYouTubeMessage(mensagem, false);
-            
+
             return true;
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [META] ERRO CRÍTICO: " + ex.Message);
+            LogError("ERRO CRÍTICO: " + ex.Message);
             CPH.SendYouTubeMessage("❌ Falha técnica ao consultar a meta.");
             return false;
         }
@@ -64,24 +80,21 @@ public class CPHInline
     private string MontarMensagem(string broadcastUserName, int progressoMensal)
     {
         // ==========================================
-        // CANAL: MADEIRA (1ª Live 12h + 2ª Live Dinâmica de +1h a cada 5k)
+        // CANAL: MADEIRA (1ª Live 12h + 2ª Live 12h Fechada)
         // ==========================================
-        if (string.Equals(broadcastUserName, "Madeira", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(broadcastUserName, "madeira_on", StringComparison.OrdinalIgnoreCase))
         {
-            const int metaPrimeiraLive = 60000;
-            const int metaSegundaLive = 120000;
-
             // Fase 1: Em busca da 1ª Live
-            if (progressoMensal < metaPrimeiraLive)
+            if (progressoMensal < MetaPrimeiraLiveMadeira)
             {
-                int faltam = metaPrimeiraLive - progressoMensal;
+                int faltam = MetaPrimeiraLiveMadeira - progressoMensal;
                 return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🎬 1ª Live 12h: Faltam {faltam:N0}/60.000 |";
             }
 
             // Fase 2: Em busca da 2ª Live (12h fechadas)
-            if (progressoMensal < metaSegundaLive)
+            if (progressoMensal < MetaSegundaLiveMadeira)
             {
-                int faltamSegunda = metaSegundaLive - progressoMensal;
+                int faltamSegunda = MetaSegundaLiveMadeira - progressoMensal;
                 return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆 1ª Live 12h Garantida! | 🎬 2ª Live 12h: Faltam {faltamSegunda:N0}/60.000 |";
             }
 
@@ -90,38 +103,34 @@ public class CPHInline
         }
 
         // ==========================================
-        // CANAL: CAMPOSRAPHA (1ª Live 12h + 2ª Live 12h Fechada)
+        // CANAL: CAMPOSRAPHA (1ª Live 12h + 2ª Live Dinâmica de +1h a cada 5k)
         // ==========================================
-        else if (string.Equals(broadcastUserName, "CamposRapha", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(broadcastUserName, "canalcamposrapha", StringComparison.OrdinalIgnoreCase))
         {
-            const int metaBase = 60000;
-            const int pontosPorHoraExtra = 5000;
-            const int maxHorasSegundaLive = 12;
-
             // Fase 1: Em busca da 1ª Live de 12h
-            if (progressoMensal < metaBase)
+            if (progressoMensal < MetaBaseRapha)
             {
-                int faltamBase = metaBase - progressoMensal;
-                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🎬 Live 12h: Faltam {faltamBase:N0}/{metaBase:N0} |";
+                int faltamBase = MetaBaseRapha - progressoMensal;
+                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🎬 Live 12h: Faltam {faltamBase:N0}/{MetaBaseRapha:N0} |";
             }
 
             // Fase 2: Calculando progresso dinâmico da 2ª Live
-            int pontosExtras = progressoMensal - metaBase;
-            int horasSegundaLive = Math.Min(pontosExtras / pontosPorHoraExtra, maxHorasSegundaLive);
+            int pontosExtras = progressoMensal - MetaBaseRapha;
+            int horasSegundaLive = Math.Min(pontosExtras / PontosPorHoraExtraRapha, MaxHorasSegundaLiveRapha);
 
             // Entre 60.000 e 64.999 pts (buscando a 1ª hora)
             if (horasSegundaLive == 0)
             {
-                int faltamPrimeiraHora = pontosPorHoraExtra - (pontosExtras % pontosPorHoraExtra);
-                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆 1ª Live 12h Garantida! | 🚀 2ª Live (1h): Faltam {faltamPrimeiraHora:N0}/{pontosPorHoraExtra:N0} |";
+                int faltamPrimeiraHora = PontosPorHoraExtraRapha - (pontosExtras % PontosPorHoraExtraRapha);
+                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆 1ª Live 12h Garantida! | 🚀 2ª Live (1h): Faltam {faltamPrimeiraHora:N0}/{PontosPorHoraExtraRapha:N0} |";
             }
 
             // Entre 1h e 11h acumuladas na 2ª Live
-            if (horasSegundaLive < maxHorasSegundaLive)
+            if (horasSegundaLive < MaxHorasSegundaLiveRapha)
             {
-                int progressoHoraAtual = pontosExtras % pontosPorHoraExtra;
-                int faltamProximaHora = pontosPorHoraExtra - progressoHoraAtual;
-                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆 1ª Live 12h + 2ª Live {horasSegundaLive}h Garantidas! | 🚀 2ª Live (+1h): Faltam {faltamProximaHora:N0}/{pontosPorHoraExtra:N0} |";
+                int progressoHoraAtual = pontosExtras % PontosPorHoraExtraRapha;
+                int faltamProximaHora = PontosPorHoraExtraRapha - progressoHoraAtual;
+                return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆 1ª Live 12h + 2ª Live {horasSegundaLive}h Garantidas! | 🚀 2ª Live (+1h): Faltam {faltamProximaHora:N0}/{PontosPorHoraExtraRapha:N0} |";
             }
 
             // 120.000+ pts (12h + 12h batidas)
@@ -131,22 +140,13 @@ public class CPHInline
         return $"✨ Meta Mensal: {progressoMensal:N0} pts |";
     }
 
-    public class Contexto
+    private void LogWarn(string mensagem)
     {
-        public Evento Evento { get; set; }
+        CPH.LogWarn(Prefixo + mensagem);
     }
 
-    private Contexto ObterContexto()
+    private void LogError(string mensagem)
     {
-        CPH.TryGetArg("contextoJson", out string contextoJson);
-        if (string.IsNullOrEmpty(contextoJson))
-            return null;
-
-        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
-    }
-
-    public class Evento
-    {
-        public string BroadcastUserName { get; set; }
+        CPH.LogError(Prefixo + mensagem);
     }
 }

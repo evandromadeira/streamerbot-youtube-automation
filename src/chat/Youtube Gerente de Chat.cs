@@ -2,49 +2,62 @@ using System;
 using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 261003.1010
+// Atualização 261013.0720
 public class CPHInline
 {
+    private const string Prefixo = "[GERENTE_DE_CHAT] ";
+
     public bool Execute()
     {
         try
         {
-            Evento evento = new Evento(CPH);
+            Evento evento = LerEvento();
             Ambiente ambiente = new Ambiente(CPH);
 
-            var contexto = new Contexto
+            Contexto contexto = new Contexto
             {
                 Evento = evento,
                 Ambiente = ambiente
             };
 
+            var broadcaster = CPH.YouTubeGetBroadcaster();
+
+            evento.BroadcastUserId = broadcaster?.UserId ?? "";
+            evento.BroadcastUserName = string.IsNullOrEmpty(broadcaster?.UserName) ? "YOUTUBE" : broadcaster?.UserName;
+
             // Serializa para JSON uma única vez
             string contextoJson = JsonConvert.SerializeObject(contexto);
             CPH.SetArgument("contextoJson", contextoJson);
 
+            // ------------------------------------------------------------------
+            // Youtube Gerente de Banco de Dados: registra a mensagem e o usuário.
+            // ------------------------------------------------------------------
             CPH.SetArgument("chatLogIsSubscribed", evento.IsSub);
             CPH.SetArgument("chatLogIsSponsor", evento.IsSpo);
             CPH.SetArgument("chatLogIsModerator", evento.IsMod);
             CPH.SetArgument("chatLogUserId", evento.UserId);
             CPH.SetArgument("chatLogUserName", evento.UserName);
-            CPH.SetArgument("chatLogUserPreviousActive", evento.UserPreviousActive);
             CPH.SetArgument("chatLogMessageId", evento.MessageId);
             CPH.SetArgument("chatLogMessage", evento.MessageText);
             CPH.SetArgument("chatLogPublishedAt", evento.PublishedAt);
+            CPH.SetArgument("chatLogUserPreviousActive", evento.UserPreviousActive);
             CPH.SetArgument("chatLogBroadcastUserId", evento.BroadcastUserId);
             CPH.SetArgument("chatLogBroadcastUserName", evento.BroadcastUserName);
 
             bool salvou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SalvarChatLog");
             if (!salvou)
             {
-                CPH.LogError(">>> [GERENTE_DE_CHAT] ERRO: falha ao salvar mensagem no banco de dados.");
+                LogError("ERRO: falha ao salvar mensagem no banco de dados.");
                 return false;
             }
 
+            // ------------------------------------------------------------------
+            // Youtube Gerente de Moedas: recompensa a atividade no chat.
+            // ------------------------------------------------------------------
             bool creditou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "RecompensarAtividadeChat");
             if (!creditou)
             {
-                CPH.LogError(">>> [GERENTE_DE_CHAT] ERRO: falha ao creditar moedas para o usuário.");
+                LogError("ERRO: falha ao creditar moedas para o usuário.");
             }
 
             // Comandos de Chat
@@ -57,7 +70,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [GERENTE_DE_CHAT] ERRO CRÍTICO: {ex.Message}");
+            LogError($"ERRO CRÍTICO: {ex.Message}");
             return false;
         }
     }
@@ -68,6 +81,24 @@ public class CPHInline
         string comando = message.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
         switch (comando)
         {
+            case "!meta":
+                CPH.RunAction("Youtube Consultar Meta", false);
+                break;
+            case "!novoaudio":
+                CPH.ExecuteMethod("Youtube Gerente de Áudio", "CadastrarAudio");
+                break;
+            case "!audios":
+                CPH.ExecuteMethod("Youtube Gerente de Áudio", "ListarAudios");
+                break;
+            case "!presenca":
+                CPH.ExecuteMethod("Youtube Gerente de Estatísticas", "ConsultarPresenca");
+                break;
+            case "!presencames":
+                CPH.ExecuteMethod("Youtube Gerente de Estatísticas", "ConsultarPresencaMes");
+                break;
+            case "!minecraft":
+                CPH.ExecuteMethod("Youtube Gerente de Minecraft", "ProcessarComando");
+                break;
             case "!saldo":
                 CPH.ExecuteMethod("Youtube Gerente de Moedas", "SaldoMoedasUsuario");
                 break;
@@ -81,12 +112,6 @@ public class CPHInline
             case "!topmoedas":
                 CPH.ExecuteMethod("Youtube Gerente de Moedas", "TopMoedas");
                 break;
-            case "!perfil":
-                CPH.ExecuteMethod("Youtube Gerente de Perfil", "ProcessarComando");
-                break;
-            case "!importar":
-                CPH.ExecuteMethod("Youtube Importar Moedas SE", "ImportarMoedasStreamElements");
-                break;
             case "!iniciarpalpite":
                 CPH.ExecuteMethod("Youtube Gerente de Palpite", "IniciarPalpite");
                 break;
@@ -99,48 +124,78 @@ public class CPHInline
             case "!cancelarpalpite":
                 CPH.ExecuteMethod("Youtube Gerente de Palpite", "CancelarPalpite");
                 break;
-            case "!meta":
-                CPH.RunAction("Youtube Consultar Meta", false);
-                break;
-            case "!novoaudio":
-                CPH.ExecuteMethod("Youtube Gerente de Áudio", "CadastrarAudio");
-                break;
-            case "!audios":
-                CPH.ExecuteMethod("Youtube Gerente de Áudio", "ListarAudios");
-                break;
-            case "!timer":
-                CPH.ExecuteMethod("Youtube Gerente de Timer", "ProcessarComando");
-                break;
-            case "!presenca":
-                CPH.ExecuteMethod("Youtube Gerente de Estatísticas", "ConsultarPresenca");
-                break;
-            case "!presencames":
-                CPH.ExecuteMethod("Youtube Gerente de Estatísticas", "ConsultarPresencaMes");
+            case "!perfil":
+                CPH.ExecuteMethod("Youtube Gerente de Perfil", "ProcessarComando");
                 break;
             case "!plataforma":
                 CPH.ExecuteMethod("Youtube Gerente de Plataforma", "ProcessarComando");
                 break;
+            case "!timer":
+                CPH.ExecuteMethod("Youtube Gerente de Timer", "ProcessarComando");
+                break;
+            case "!importar":
+                CPH.ExecuteMethod("Youtube Importar Moedas SE", "ImportarMoedasStreamElements");
+                break;
             default:
                 bool audioTocado = CPH.ExecuteMethod("Youtube Gerente de Áudio", "ReproduzirAudio");
                 if (audioTocado)
+                {
                     break;
+                }
 
                 // Desafio de Palavra Surpresa
-                var moedasSurpresaPalavra = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true);
-
+                string moedasSurpresaPalavra = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true);
                 if (!string.IsNullOrEmpty(moedasSurpresaPalavra))
                 {
                     CPH.ExecuteMethod("Youtube Compara Palavra", "CompararPalavra");
                 }
                 else
                 {
-                    // Mensagem desativada para não poluir o chat com mensagens de comando desconhecido
-                    // CPH.SendYouTubeMessage($"@{userName} - Comando desconhecido: {comando}");
-                    CPH.LogInfo($">>> [GERENTE_DE_CHAT] @{userName} - Comando desconhecido: {comando}");
+                    LogInfo($"@{userName} - Comando desconhecido: {comando}");
                 }
 
                 break;
         }
+    }
+
+    private Evento LerEvento()
+    {
+        Evento evento = new Evento();
+
+        CPH.TryGetArg("isSubscribed", out bool isSub);
+        CPH.TryGetArg("userIsSponsor", out bool isSpo);
+        CPH.TryGetArg("isModerator", out bool isMod);
+
+        CPH.TryGetArg("userId", out string userId);
+        CPH.TryGetArg("userName", out string userName);
+        CPH.TryGetArg("messageId", out string messageId);
+        CPH.TryGetArg("message", out string messageText);
+
+        CPH.TryGetArg("userPreviousActive", out DateTime userPreviousActive);
+
+        evento.IsSub = isSub;
+        evento.IsSpo = isSpo;
+        evento.IsMod = isMod;
+
+        evento.UserId = userId;
+        evento.UserName = userName;
+        evento.MessageId = messageId;
+        evento.MessageText = messageText;
+
+        evento.PublishedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        evento.UserPreviousActive = userPreviousActive != DateTime.MinValue ? userPreviousActive.ToString("yyyy-MM-dd HH:mm:ss") : "Primeira Mensagem";
+
+        return evento;
+    }
+
+    private void LogInfo(string mensagem)
+    {
+        CPH.LogInfo(Prefixo + mensagem);
+    }
+
+    private void LogError(string mensagem)
+    {
+        CPH.LogError(Prefixo + mensagem);
     }
 
     public class Contexto
@@ -154,45 +209,16 @@ public class CPHInline
         public bool IsSub { get; set; }
         public bool IsSpo { get; set; }
         public bool IsMod { get; set; }
+
         public string UserId { get; set; }
         public string UserName { get; set; }
-        public string UserPreviousActive { get; set; }
         public string MessageId { get; set; }
         public string MessageText { get; set; }
         public string PublishedAt { get; set; }
+        public string UserPreviousActive { get; set; }
         public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
 
-        // Construtor vazio necessário para deserialização
-        public Evento()
-        {
-        }
-
-        public Evento(IInlineInvokeProxy CPH)
-        {
-            CPH.TryGetArg("isSubscribed", out bool isSub);
-            CPH.TryGetArg("userIsSponsor", out bool isSpo);
-            CPH.TryGetArg("isModerator", out bool isMod);
-            CPH.TryGetArg("userId", out string userId);
-            CPH.TryGetArg("userName", out string userName);
-            CPH.TryGetArg("userPreviousActive", out DateTime userPreviousActive);
-            CPH.TryGetArg("messageId", out string messageId);
-            CPH.TryGetArg("message", out string messageText);
-            CPH.TryGetArg("broadcastUserId", out string bUserId);
-            CPH.TryGetArg("broadcastUserName", out string bUserName);
-
-            IsSub = isSub;
-            IsSpo = isSpo;
-            IsMod = isMod;
-            UserId = userId;
-            UserName = userName;
-            UserPreviousActive = userPreviousActive != DateTime.MinValue ? userPreviousActive.ToString("yyyy-MM-dd HH:mm:ss") : "Primeira Mensagem";
-            MessageId = messageId;
-            MessageText = messageText;
-            PublishedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            BroadcastUserId = bUserId;
-            BroadcastUserName = string.IsNullOrEmpty(bUserName) ? "YOUTUBE" : bUserName;
-        }
     }
 
     public class Ambiente
