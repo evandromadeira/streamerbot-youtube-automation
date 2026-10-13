@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-// Atualização 261013.0710
+// Atualização 261013.1825
 public class CPHInline
 {
     private const string Prefixo = "[IMPORTAR_MOEDAS_SE] ";
@@ -32,12 +32,13 @@ public class CPHInline
             }
 
             evento = contexto.Evento;
+
             Ambiente ambiente = contexto.Ambiente;
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (partes.Length != 3)
             {
-                CPH.SendYouTubeMessage($"⚠ Uso correto: !importar [nome_na_twitch] [quantidade ou all]");
+                EnviarMensagem($"⚠ Uso correto: !importar [nome_na_twitch] [quantidade ou all]", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -47,14 +48,14 @@ public class CPHInline
             if (string.IsNullOrEmpty(ambiente.PastaSE))
             {
                 LogError("ERRO: Variável global 'caminhoPastaStreamElements' não definida!");
-                CPH.SendYouTubeMessage("❌ Erro de configuração: pasta do StreamElements não localizada.");
+                EnviarMensagem("❌ Erro de configuração: pasta do StreamElements não localizada.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             if (!File.Exists(ambiente.CaminhoConfigSE))
             {
                 LogError($"ERRO: Arquivo {ambiente.CaminhoConfigSE} não localizado!");
-                CPH.SendYouTubeMessage("❌ Erro interno: arquivo de credenciais ausente.");
+                EnviarMensagem("❌ Erro interno: arquivo de credenciais ausente.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -64,11 +65,10 @@ public class CPHInline
             string jwtToken = variaveisConfigSE.ContainsKey($"jwt_token_{keyPrefix}") ? variaveisConfigSE[$"jwt_token_{keyPrefix}"] : null;
             idCanal = variaveisConfigSE.ContainsKey($"channel_id_{keyPrefix}") ? variaveisConfigSE[$"channel_id_{keyPrefix}"] : null;
             string moedaSE = variaveisConfigSE.ContainsKey($"moeda_se_{keyPrefix}") ? variaveisConfigSE[$"moeda_se_{keyPrefix}"] : "pontos";
-
             if (string.IsNullOrEmpty(jwtToken) || string.IsNullOrEmpty(idCanal))
             {
                 LogError($"ERRO: Token ou Channel ID ausentes para o canal {evento.BroadcastUserName}!");
-                CPH.SendYouTubeMessage("❌ Falha de autenticação com o StreamElements.");
+                EnviarMensagem("❌ Falha de autenticação com o StreamElements.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -77,7 +77,7 @@ public class CPHInline
             (int saldoSE, _) = api.ConsultarSaldoERankUsuario(twitchUser);
             if (saldoSE <= 0)
             {
-                CPH.SendYouTubeMessage($"❌ @{evento.UserName}, o usuário Twitch '{twitchUser}' não possui {moedaSE} para importar.");
+                EnviarMensagem($"❌ @{evento.UserName}, o usuário Twitch '{twitchUser}' não possui {moedaSE} para importar.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -89,34 +89,33 @@ public class CPHInline
             {
                 if (qtdInformada <= 0)
                 {
-                    CPH.SendYouTubeMessage($"⚠ A quantidade informada precisa ser maior que zero!");
+                    EnviarMensagem($"⚠ A quantidade informada precisa ser maior que zero!", evento.BroadcastId, somenteNaTransmissao: true);
                     return false;
                 }
                 if (qtdInformada > saldoSE)
                 {
-                    CPH.SendYouTubeMessage($"❌ Saldo insuficiente na Twitch! '{twitchUser}' possui apenas {saldoSE:N0} {moedaSE}.");
+                    EnviarMensagem($"❌ Saldo insuficiente na Twitch! '{twitchUser}' possui apenas {saldoSE:N0} {moedaSE}.", evento.BroadcastId, somenteNaTransmissao: true);
                     return false;
                 }
                 moedasAImportar = qtdInformada;
             }
             else
             {
-                CPH.SendYouTubeMessage($"⚠ Entrada inválida! Use um valor numérico ou 'all'.");
+                EnviarMensagem($"⚠ Entrada inválida! Use um valor numérico ou 'all'.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             // Sem resposta conclusiva, o débito pode ter sido aplicado no SE.
             debitoStatus = "incerto";
+
             bool debitou = api.DebitarPontosUsuario(twitchUser, moedasAImportar);
+
             debitoStatus = api.DebitoStatus;
             if (!debitou)
             {
                 throw new InvalidOperationException(api.UltimoErro);
             }
-
-            // ------------------------------------------------------------------
             // Youtube Gerente de Moedas: credita as moedas após o débito confirmado no SE.
-            // ------------------------------------------------------------------
             CPH.SetArgument("origem", "importacao");
             CPH.SetArgument("targetUserId", evento.UserId);
             CPH.SetArgument("targetUserName", evento.UserName);
@@ -127,8 +126,11 @@ public class CPHInline
             CPH.SetArgument("adicionarCreditoStatus", "incerto");
             CPH.SetArgument("adicionarErro", "");
             CPH.SetArgument("adicionarDestinatarioId", "");
+
             creditoStatus = "incerto";
+
             bool executou;
+
             try
             {
                 executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
@@ -144,10 +146,7 @@ public class CPHInline
             {
                 throw new InvalidOperationException(string.IsNullOrEmpty(erroCredito) ? "O crédito não terminou normalmente." : erroCredito);
             }
-
-            // ------------------------------------------------------------------
             // Youtube Gerente de Banco de Dados: consulta o saldo sem desfazer o crédito confirmado.
-            // ------------------------------------------------------------------
             CPH.SetArgument("consultarChave", evento.UserId);
             CPH.SetArgument("consultarPorId", true);
             CPH.SetArgument("consultarEncontrado", false);
@@ -159,7 +158,7 @@ public class CPHInline
             CPH.TryGetArg("consultarRank", out int rankUsuario);
 
             string detalheSaldo = consultou && encontrado ? $" Saldo: {saldoAtual:N0} (#{rankUsuario})." : " Saldo indisponível para consulta.";
-            Avisar($"✅ @{evento.UserName}, importação de {moedasAImportar:N0} moedas concluída!" + detalheSaldo);
+            Avisar($"✅ @{evento.UserName}, importação de {moedasAImportar:N0} moedas concluída!" + detalheSaldo, evento?.BroadcastId);
             return true;
         }
         catch (Exception ex)
@@ -172,25 +171,25 @@ public class CPHInline
 
             if (creditoStatus == "creditado")
             {
-                Avisar($"⚠ @{evento?.UserName}, as {moedasAImportar:N0} moedas foram creditadas, mas houve falha posterior. Não repita a importação.");
+                Avisar($"⚠ @{evento?.UserName}, as {moedasAImportar:N0} moedas foram creditadas, mas houve falha posterior. Não repita a importação.", evento?.BroadcastId);
             }
             else if (debitoStatus == "debitado" && creditoStatus == "falhou")
             {
-                Avisar($"⚠ @{evento?.UserName}, o SE debitou {moedasAImportar:N0} pontos, mas o crédito falhou. Moderação: adicionar manualmente; detalhes no log. Não repita a importação.");
+                Avisar($"⚠ @{evento?.UserName}, o SE debitou {moedasAImportar:N0} pontos, mas o crédito falhou. Moderação: adicionar manualmente; detalhes no log. Não repita a importação.", evento?.BroadcastId);
             }
             else if (debitoStatus == "incerto" || creditoStatus == "incerto")
             {
-                Avisar($"⚠ @{evento?.UserName}, não foi possível confirmar a importação. Moderação: conferir SE e banco pelo log antes de adicionar moedas. Não repita a operação.");
+                Avisar($"⚠ @{evento?.UserName}, não foi possível confirmar a importação. Moderação: conferir SE e banco pelo log antes de adicionar moedas. Não repita a operação.", evento?.BroadcastId);
             }
             else
             {
-                Avisar($"❌ @{evento?.UserName}, não foi possível concluir a consulta ou o débito no StreamElements. Tente mais tarde.");
+                Avisar($"❌ @{evento?.UserName}, não foi possível concluir a consulta ou o débito no StreamElements. Tente mais tarde.", evento?.BroadcastId);
             }
             return creditoStatus == "creditado";
         }
     }
 
-    private void Avisar(string mensagem)
+    private void Avisar(string mensagem, string broadcastId)
     {
         try
         {
@@ -198,7 +197,7 @@ public class CPHInline
             {
                 mensagem = mensagem.Substring(0, 197) + "...";
             }
-            CPH.SendYouTubeMessage(mensagem);
+            EnviarMensagem(mensagem, broadcastId, somenteNaTransmissao: true);
         }
         catch (Exception ex)
         {
@@ -224,6 +223,24 @@ public class CPHInline
         return variaveisArquivo;
     }
 
+    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
+    {
+        // Direciona a resposta quando solicitado e há uma transmissão identificada.
+        if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
+        {
+            CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+        }
+        else
+        {
+            CPH.SendYouTubeMessage(mensagem);
+        }
+    }
+
+    private void LogError(string mensagem)
+    {
+        CPH.LogError(Prefixo + mensagem);
+    }
+
     private Contexto ObterContexto()
     {
         CPH.TryGetArg("contextoJson", out string contextoJson);
@@ -235,9 +252,10 @@ public class CPHInline
         return JsonConvert.DeserializeObject<Contexto>(contextoJson);
     }
 
-    private void LogError(string mensagem)
+    public class Contexto
     {
-        CPH.LogError(Prefixo + mensagem);
+        public Evento Evento { get; set; }
+        public Ambiente Ambiente { get; set; }
     }
 
     public class ApiStreamElements
@@ -258,6 +276,7 @@ public class CPHInline
         public (int saldo, int rank) ConsultarSaldoERankUsuario(string usuario)
         {
             string url = $"https://api.streamelements.com/kappa/v2/points/{this.idCanal}/{usuario}";
+
             var getRequest = new HttpRequestMessage
             {
                 Method = HttpMethod.Get,
@@ -289,6 +308,7 @@ public class CPHInline
             try
             {
                 string url = $"https://api.streamelements.com/kappa/v2/points/{this.idCanal}/{usuario}/-{pontos}";
+
                 var putRequest = new HttpRequestMessage
                 {
                     Method = HttpMethod.Put,
@@ -319,17 +339,12 @@ public class CPHInline
         }
     }
 
-    public class Contexto
-    {
-        public Evento Evento { get; set; }
-        public Ambiente Ambiente { get; set; }
-    }
-
     public class Evento
     {
         public string UserId { get; set; }
         public string UserName { get; set; }
         public string MessageText { get; set; }
+        public string BroadcastId { get; set; }
         public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
     }
@@ -340,9 +355,9 @@ public class CPHInline
 
         public string CaminhoConfigSE => Path.Combine(PastaSE, "ConfigSE.txt");
 
-        // Construtor vazio necessário para desserialização do contexto.
         public Ambiente()
         {
+            // Construtor vazio necessário para desserialização do contexto.
         }
 
         public Ambiente(IInlineInvokeProxy CPH)

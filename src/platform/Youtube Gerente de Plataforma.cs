@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261013.1355
+// Atualização 261013.1825
 public class CPHInline
 {
     private const int VersaoRegraPlataforma = 1;
@@ -311,7 +311,7 @@ public class CPHInline
         }
         else
         {
-            CPH.SendYouTubeMessage(mensagem, false);
+            CPH.SendYouTubeMessage(mensagem);
         }
     }
 
