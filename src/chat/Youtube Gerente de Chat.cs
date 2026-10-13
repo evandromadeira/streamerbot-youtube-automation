@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 261013.0720
+// Atualização 261013.1400
 public class CPHInline
 {
     private const string Prefixo = "[GERENTE_DE_CHAT] ";
@@ -165,37 +165,35 @@ public class CPHInline
         CPH.TryGetArg("isSubscribed", out bool isSub);
         CPH.TryGetArg("userIsSponsor", out bool isSpo);
         CPH.TryGetArg("isModerator", out bool isMod);
-
         CPH.TryGetArg("userId", out string userId);
         CPH.TryGetArg("userName", out string userName);
         CPH.TryGetArg("messageId", out string messageId);
         CPH.TryGetArg("message", out string messageText);
-
         CPH.TryGetArg("userPreviousActive", out DateTime userPreviousActive);
+        CPH.TryGetArg("broadcast.id", out string broadcastId);
 
         evento.IsSub = isSub;
         evento.IsSpo = isSpo;
         evento.IsMod = isMod;
-
         evento.UserId = userId;
         evento.UserName = userName;
         evento.MessageId = messageId;
         evento.MessageText = messageText;
-
         evento.PublishedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
         evento.UserPreviousActive = userPreviousActive != DateTime.MinValue ? userPreviousActive.ToString("yyyy-MM-dd HH:mm:ss") : "Primeira Mensagem";
+        evento.BroadcastId = broadcastId;
 
         return evento;
-    }
-
-    private void LogInfo(string mensagem)
-    {
-        CPH.LogInfo(Prefixo + mensagem);
     }
 
     private void LogError(string mensagem)
     {
         CPH.LogError(Prefixo + mensagem);
+    }
+
+    private void LogInfo(string mensagem)
+    {
+        CPH.LogInfo(Prefixo + mensagem);
     }
 
     public class Contexto
@@ -216,9 +214,9 @@ public class CPHInline
         public string MessageText { get; set; }
         public string PublishedAt { get; set; }
         public string UserPreviousActive { get; set; }
+        public string BroadcastId { get; set; }
         public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
-
     }
 
     public class Ambiente
