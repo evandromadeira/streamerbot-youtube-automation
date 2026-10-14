@@ -2,20 +2,27 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261005.1745
+// Atualização 261014.0805
 public class CPHInline
 {
+    private const int MoedasPorMensagem = 10;
+    private const int CooldownAtividadeMinutos = 10;
+
+    private const string Prefixo = "[GERENTE_MOEDAS] ";
+
     public bool SaldoMoedasUsuario()
     {
+        Evento evento = null;
+
         try
         {
             Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
+                LogError("ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            Evento evento = contexto.Evento;
+            evento = contexto.Evento;
 
             string[] partesComando = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
 
@@ -31,14 +38,14 @@ public class CPHInline
             bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SaldoMoedasUsuario");
             if (!executou)
             {
-                CPH.SendYouTubeMessage("❌ Falha técnica ao consultar moedas.");
+                EnviarMensagem("❌ Falha técnica ao consultar moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             CPH.TryGetArg("consultarEncontrado", out bool encontrado);
             if (!encontrado)
             {
-                CPH.SendYouTubeMessage($"ℹ @{nomeConsultado} ainda não possui moedas registradas.");
+                EnviarMensagem($"ℹ @{nomeConsultado} ainda não possui moedas do canal registradas.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return true;
             }
 
@@ -54,28 +61,30 @@ public class CPHInline
                 _ => "✨"
             };
 
-            CPH.SendYouTubeMessage($"{posicaoTexto}(#{rank}) - @{nomeExibido}: {moedas:N0} Moedas");
+            EnviarMensagem($"{posicaoTexto}(#{rank}) - @{nomeExibido}: {moedas:N0} Moedas do Canal", evento?.BroadcastId, somenteNaTransmissao: true);
             return true;
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao consultar moedas: " + ex.Message);
-            CPH.SendYouTubeMessage("❌ Falha técnica ao consultar moedas.");
+            LogError("ERRO CRÍTICO ao consultar moedas: " + ex.Message);
+            EnviarMensagem("❌ Falha técnica ao consultar moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
             return false;
         }
     }
 
     public bool TopMoedas()
     {
+        Evento evento = null;
+
         try
         {
             Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
+                LogError("ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            Evento evento = contexto.Evento;
+            evento = contexto.Evento;
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
@@ -83,13 +92,13 @@ public class CPHInline
 
             if (partes.Length != 2 || !int.TryParse(partes[1], out int quantidade) || quantidade <= 0)
             {
-                CPH.SendYouTubeMessage($"⚠ Uso correto: !topmoedas [quantidade] (máximo {limiteMaximo})");
+                EnviarMensagem($"⚠ Uso correto: !topmoedas [quantidade] (máximo {limiteMaximo})", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             if (quantidade > limiteMaximo)
             {
-                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, o máximo permitido é {limiteMaximo}.");
+                EnviarMensagem($"⚠ @{evento.UserName}, o máximo permitido é {limiteMaximo}.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -98,35 +107,35 @@ public class CPHInline
             bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ConsultarTopMoedas");
             if (!executou)
             {
-                CPH.SendYouTubeMessage("❌ Falha técnica ao consultar o top de moedas.");
+                EnviarMensagem("❌ Falha técnica ao consultar o top de moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             CPH.TryGetArg("topMoedasResultadoJson", out string resultadoJson);
 
-            var itens = string.IsNullOrEmpty(resultadoJson) ? null : JsonConvert.DeserializeObject<List<TopMoedaItem>>(resultadoJson);
+            List<TopMoedaItem> itens = string.IsNullOrEmpty(resultadoJson) ? null : JsonConvert.DeserializeObject<List<TopMoedaItem>>(resultadoJson);
             if (itens == null || itens.Count == 0)
             {
-                CPH.SendYouTubeMessage("ℹ Ainda não há moedas registradas.");
+                EnviarMensagem("ℹ Ainda não há moedas do canal registradas.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return true;
             }
 
-            EnviarTopMoedas(itens);
+            EnviarTopMoedas(itens, evento.BroadcastId);
             return true;
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao consultar top de moedas: " + ex.Message);
-            CPH.SendYouTubeMessage("❌ Falha técnica ao consultar o top de moedas.");
+            LogError("ERRO CRÍTICO ao consultar top de moedas do canal: " + ex.Message);
+            EnviarMensagem("❌ Falha técnica ao consultar o top de moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
             return false;
         }
     }
 
-    private void EnviarTopMoedas(List<TopMoedaItem> itens)
+    private void EnviarTopMoedas(List<TopMoedaItem> itens, string broadcastId)
     {
-        const string prefixo = "Top Moedas: ";
-
         const int limiteCaracteres = 200;
+
+        const string prefixo = "Top Moedas do Canal: ";
 
         var mensagens = new List<string>();
 
@@ -156,28 +165,28 @@ public class CPHInline
         }
 
         if (mensagemAtual != prefixo)
+        {
             mensagens.Add(mensagemAtual);
+        }
 
         foreach (var mensagem in mensagens)
         {
-            CPH.SendYouTubeMessage(mensagem);
+            EnviarMensagem(mensagem, broadcastId, somenteNaTransmissao: true);
             CPH.Wait(300);
         }
     }
 
     public bool AdicionarMoedasUsuario()
     {
+        bool bancoChamado = false;
+
         string origem = "";
         string operacaoId = Guid.NewGuid().ToString("D");
 
-        bool bancoChamado = false;
+        Evento evento = null;
 
         try
         {
-            CPH.TryGetArg("origem", out origem);
-
-            origem = string.IsNullOrEmpty(origem) ? "chat_adicionar" : origem;
-
             CPH.SetArgument("adicionarOperacaoId", operacaoId);
             CPH.SetArgument("adicionarBancoInicioId", "");
             CPH.SetArgument("adicionarBancoRespostaId", "");
@@ -188,11 +197,25 @@ public class CPHInline
             CPH.SetArgument("adicionarDestinatarioId", "");
             CPH.SetArgument("adicionarDestinatarioNomeExibido", "");
 
+            CPH.TryGetArg("origem", out origem);
+
+            origem = string.IsNullOrEmpty(origem) ? "chat_adicionar" : origem;
+            if (origem == "chat_atividade" || origem == "chat_adicionar")
+            {
+                Contexto contexto = ObterContexto();
+                if (contexto?.Evento == null)
+                {
+                    LogError("ERRO: não foi possível ler o contexto do evento.");
+                    return false;
+                }
+                evento = contexto.Evento;
+            }
+
+            int coinsToAdd = 0;
+
             string targetUserId = "";
             string targetUserName = "";
             string senderUserName = "";
-
-            int coinsToAdd = 0;
 
             if (origem == "chat_atividade" || origem == "doacao" || origem == "moedas_surpresa" || origem == "importacao")
             {
@@ -204,8 +227,8 @@ public class CPHInline
 
                 if ((string.IsNullOrEmpty(targetUserId) && string.IsNullOrEmpty(targetUserName)) || coinsToAdd <= 0)
                 {
-                    CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: Dados de doação inválidos.");
-                    CPH.SetArgument("adicionarErro", "Usuário ou quantidade de moedas inválidos.");
+                    LogError("ERRO: Dados de doação inválidos.");
+                    CPH.SetArgument("adicionarErro", "Usuário ou quantidade de moedas do canal inválidos.");
                     CPH.SetArgument("adicionarResultado", "ParametrosInvalidos");
                     return false;
                 }
@@ -218,39 +241,31 @@ public class CPHInline
             }
             else if (origem == "chat_adicionar")
             {
-                Contexto contexto = ObterContexto();
-                if (contexto?.Evento == null)
-                {
-                    CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
-                    return false;
-                }
-                Evento evento = contexto.Evento;
-
                 senderUserName = evento.UserName;
 
                 if (!evento.IsMod)
                 {
-                    CPH.SendYouTubeMessage($"❌ @{evento.UserName}, apenas moderadores podem usar !adicionar.");
+                    EnviarMensagem($"❌ @{evento.UserName}, apenas moderadores podem usar !adicionar.", evento?.BroadcastId, somenteNaTransmissao: true);
                     return false;
                 }
 
                 string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                 if (partes.Length != 3)
                 {
-                    CPH.SendYouTubeMessage("⚠ Uso correto: !adicionar [@usuario] [quantidade]");
+                    EnviarMensagem("⚠ Uso correto: !adicionar [@usuario] [quantidade]", evento?.BroadcastId, somenteNaTransmissao: true);
                     return false;
                 }
 
                 targetUserName = partes[1].TrimStart('@').Trim();
                 if (string.IsNullOrEmpty(targetUserName))
                 {
-                    CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, informe o usuário que vai receber as moedas.");
+                    EnviarMensagem($"⚠ @{evento.UserName}, informe o usuário que vai receber as moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
                     return false;
                 }
 
                 if (!int.TryParse(partes[2], out coinsToAdd) || coinsToAdd <= 0)
                 {
-                    CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, a quantidade precisa ser um número inteiro maior que zero.");
+                    EnviarMensagem($"⚠ @{evento.UserName}, a quantidade precisa ser um número inteiro maior que zero.", evento?.BroadcastId, somenteNaTransmissao: true);
                     return false;
                 }
 
@@ -277,17 +292,20 @@ public class CPHInline
 
             if (!executou)
             {
-                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: falha ao adicionar moedas por comando.");
+                LogError("ERRO: falha ao adicionar moedas do canal por comando.");
                 if (origem != "doacao" && origem != "importacao" && origem != "moedas_surpresa")
-                    CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
+                {
+                    EnviarMensagem("❌ Falha técnica ao adicionar moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
+                }
                 return (origem == "doacao" || origem == "importacao" || origem == "moedas_surpresa") && creditoStatus == "creditado";
             }
 
             CPH.TryGetArg("adicionarResultado", out string resultado);
 
             if (origem == "doacao" || origem == "importacao" || origem == "moedas_surpresa")
+            {
                 return creditoStatus == "creditado";
-
+            }
             if (origem == "chat_adicionar")
             {
                 switch (resultado)
@@ -295,16 +313,16 @@ public class CPHInline
                     case "Sucesso":
                         CPH.TryGetArg("adicionarDestinatarioNomeExibido", out string nomeDestinoExibido);
                         string nomeFinal = string.IsNullOrEmpty(nomeDestinoExibido) ? targetUserName : nomeDestinoExibido;
-                        CPH.SendYouTubeMessage($"✅ @{senderUserName} adicionou {coinsToAdd:N0} Moedas para @{nomeFinal}!");
+                        EnviarMensagem($"✅ @{senderUserName} adicionou {coinsToAdd:N0} moedas do canal para @{nomeFinal}!", evento?.BroadcastId, somenteNaTransmissao: true);
                         break;
                     case "ParametrosInvalidos":
-                        CPH.SendYouTubeMessage($"❌ @{senderUserName}, parâmetros inválidos para adicionar moedas.");
+                        EnviarMensagem($"❌ @{senderUserName}, parâmetros inválidos para adicionar moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
                         break;
                     case "BancoNaoEncontrado":
-                        CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas (Banco de dados não encontrado).");
+                        EnviarMensagem("❌ Falha técnica ao adicionar moedas do canal (Banco de dados não encontrado).", evento?.BroadcastId, somenteNaTransmissao: true);
                         break;
                     default:
-                        CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
+                        EnviarMensagem("❌ Falha técnica ao adicionar moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
                         break;
                 }
             }
@@ -313,21 +331,27 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao adicionar moedas: " + ex);
+            LogError("ERRO CRÍTICO ao adicionar moedas do canal: " + ex);
             if (bancoChamado)
+            {
                 ValidarRespostaCredito(operacaoId);
-
+            }
             CPH.TryGetArg("adicionarCreditoStatus", out string creditoStatus);
             if (!bancoChamado)
+            {
                 creditoStatus = "falhou";
+            }
             else if (creditoStatus != "creditado" && creditoStatus != "falhou")
+            {
                 creditoStatus = "incerto";
-
+            }
             CPH.SetArgument("adicionarCreditoStatus", creditoStatus);
             CPH.SetArgument("adicionarErro", ex.ToString());
 
             if (origem != "doacao" && origem != "importacao" && origem != "moedas_surpresa")
-                CPH.SendYouTubeMessage("❌ Falha técnica ao adicionar moedas.");
+            {
+                EnviarMensagem("❌ Falha técnica ao adicionar moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
+            }
             return (origem == "doacao" || origem == "importacao" || origem == "moedas_surpresa") && creditoStatus == "creditado";
         }
     }
@@ -356,7 +380,9 @@ public class CPHInline
         }
 
         if (!respostaValida || (status != "creditado" && resultado != "EmCooldown") || !string.IsNullOrEmpty(erro))
-            CPH.LogError($">>> [GERENTE_MOEDAS] DIAGNOSTICO_CREDITO {JsonConvert.SerializeObject(new { operacaoId, inicioId, respostaId, concluido, respostaValida, origem, usuarioId, usuario, quantidade, canalId, canal, statusRecebido = status, resultadoRecebido = resultado, erro })}");
+        {
+            LogError($"DIAGNOSTICO_CREDITO {JsonConvert.SerializeObject(new { operacaoId, inicioId, respostaId, concluido, respostaValida, origem, usuarioId, usuario, quantidade, canalId, canal, statusRecebido = status, resultadoRecebido = resultado, erro })}");
+        }
     }
 
     public bool RecompensarAtividadeChat()
@@ -366,20 +392,23 @@ public class CPHInline
             Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
+                LogError("ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
             Evento evento = contexto.Evento;
 
-            int moedasPorMensagem = 10;
-            int cooldownMinutos = 10;
+            int moedasPorMensagem = MoedasPorMensagem;
+            int cooldownMinutos = CooldownAtividadeMinutos;
             int multiplicador = 1;
 
             if (evento.IsSpo)
+            {
                 multiplicador++;
+            }
             if (evento.IsSub)
+            {
                 multiplicador++;
-
+            }
             moedasPorMensagem *= multiplicador;
 
             CPH.SetArgument("origem", "chat_atividade");
@@ -393,48 +422,50 @@ public class CPHInline
             bool creditou = AdicionarMoedasUsuario();
             if (!creditou)
             {
-                CPH.LogError($">>> [GERENTE_MOEDAS] ERRO: falha ao creditar moedas de atividade de chat para @{evento.UserName}.");
+                LogError($"ERRO: falha ao creditar moedas do canal de atividade de chat para @{evento.UserName}.");
             }
 
             return creditou;
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao creditar moedas de chat: " + ex.Message);
+            LogError("ERRO CRÍTICO ao creditar moedas do canal de chat: " + ex.Message);
             return false;
         }
     }
 
     public bool TransferirMoedasUsuario()
     {
+        Evento evento = null;
+
         try
         {
             Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE_MOEDAS] ERRO: não foi possível ler o contexto do evento.");
+                LogError("ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            Evento evento = contexto.Evento;
+            evento = contexto.Evento;
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (partes.Length != 3)
             {
-                CPH.SendYouTubeMessage("⚠ Uso correto: !transferir [@usuario] [quantidade]");
+                EnviarMensagem("⚠ Uso correto: !transferir [@usuario] [quantidade]", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             string destinatarioNome = partes[1].TrimStart('@').Trim();
             if (string.IsNullOrEmpty(destinatarioNome))
             {
-                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, informe o usuário que vai receber as moedas.");
+                EnviarMensagem($"⚠ @{evento.UserName}, informe o usuário que vai receber as moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             string quantidadeStr = partes[2];
             if (!int.TryParse(quantidadeStr, out int quantidade) || quantidade <= 0)
             {
-                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, a quantidade precisa ser um número inteiro maior que zero.");
+                EnviarMensagem($"⚠ @{evento.UserName}, a quantidade precisa ser um número inteiro maior que zero.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -445,7 +476,7 @@ public class CPHInline
             bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "TransferirMoedasUsuario");
             if (!executou)
             {
-                CPH.SendYouTubeMessage("❌ Falha técnica ao transferir moedas.");
+                EnviarMensagem("❌ Falha técnica ao transferir moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -456,20 +487,20 @@ public class CPHInline
                 case "Sucesso":
                     CPH.TryGetArg("transferirDestinatarioNomeExibido", out string nomeDestinoExibido);
                     string nomeFinal = string.IsNullOrEmpty(nomeDestinoExibido) ? destinatarioNome : nomeDestinoExibido;
-                    CPH.SendYouTubeMessage($"✅ @{evento.UserName} transferiu {quantidade:N0} moedas para @{nomeFinal}!");
+                    EnviarMensagem($"✅ @{evento.UserName} transferiu {quantidade:N0} moedas do canal para @{nomeFinal}!", evento?.BroadcastId, somenteNaTransmissao: true);
                     break;
                 case "DestinatarioNaoEncontrado":
-                    CPH.SendYouTubeMessage($"❌ @{evento.UserName}, o usuário '{destinatarioNome}' não foi encontrado.");
+                    EnviarMensagem($"❌ @{evento.UserName}, o usuário '{destinatarioNome}' não foi encontrado.", evento?.BroadcastId, somenteNaTransmissao: true);
                     break;
                 case "SaldoInsuficiente":
                     CPH.TryGetArg("transferirSaldoRemetente", out int saldoRemetente);
-                    CPH.SendYouTubeMessage($"❌ @{evento.UserName}, saldo insuficiente! Você possui apenas {saldoRemetente:N0} moedas.");
+                    EnviarMensagem($"❌ @{evento.UserName}, saldo insuficiente! Você possui apenas {saldoRemetente:N0} moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
                     break;
                 case "AutoTransferencia":
-                    CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, você não pode transferir moedas para si mesmo.");
+                    EnviarMensagem($"⚠ @{evento.UserName}, você não pode transferir moedas do canal para si mesmo.", evento?.BroadcastId, somenteNaTransmissao: true);
                     break;
                 default:
-                    CPH.SendYouTubeMessage("❌ Falha técnica ao transferir moedas.");
+                    EnviarMensagem("❌ Falha técnica ao transferir moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
                     break;
             }
 
@@ -477,19 +508,45 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_MOEDAS] ERRO CRÍTICO ao transferir moedas: " + ex.Message);
-            CPH.SendYouTubeMessage("❌ Falha técnica ao transferir moedas.");
+            LogError("ERRO CRÍTICO ao transferir moedas do canal: " + ex.Message);
+            EnviarMensagem("❌ Falha técnica ao transferir moedas do canal.", evento?.BroadcastId, somenteNaTransmissao: true);
             return false;
         }
     }
 
+    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
+    {
+        // Direciona a resposta quando solicitado e há uma transmissão identificada.
+        if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
+        {
+            CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+        }
+        else
+        {
+            CPH.SendYouTubeMessage(mensagem);
+        }
+    }
+
+    private void LogError(string mensagem)
+    {
+        CPH.LogError(Prefixo + mensagem);
+    }
+
     private Contexto ObterContexto()
     {
+        // Obtém o contexto criado pelo Gerente de Chat
         CPH.TryGetArg("contextoJson", out string contextoJson);
         if (string.IsNullOrEmpty(contextoJson))
+        {
             return null;
+        }
 
         return JsonConvert.DeserializeObject<Contexto>(contextoJson);
+    }
+
+    public class Contexto
+    {
+        public Evento Evento { get; set; }
     }
 
     public class TopMoedaItem
@@ -500,21 +557,17 @@ public class CPHInline
         public string NomeExibido { get; set; }
     }
 
-    public class Contexto
-    {
-        public Evento Evento { get; set; }
-    }
-
     public class Evento
     {
-        public string UserId { get; set; }
-        public string UserName { get; set; }
-        public string MessageText { get; set; }
-        public string BroadcastUserId { get; set; }
-        public string BroadcastUserName { get; set; }
-
         public bool IsSub { get; set; }
         public bool IsSpo { get; set; }
         public bool IsMod { get; set; }
+
+        public string UserId { get; set; }
+        public string UserName { get; set; }
+        public string MessageText { get; set; }
+        public string BroadcastId { get; set; }
+        public string BroadcastUserId { get; set; }
+        public string BroadcastUserName { get; set; }
     }
 }
