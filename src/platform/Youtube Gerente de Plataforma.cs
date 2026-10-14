@@ -322,7 +322,6 @@ public class CPHInline
 
     private Contexto ObterContexto()
     {
-        // Obtém o contexto criado pelo Gerente de Chat
         CPH.TryGetArg("contextoJson", out string contextoJson);
         if (string.IsNullOrEmpty(contextoJson))
         {

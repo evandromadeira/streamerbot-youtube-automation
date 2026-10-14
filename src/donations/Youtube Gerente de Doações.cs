@@ -3,7 +3,7 @@ using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261014.1130
+// Atualização 261014.1635
 // Triggers -> Source: Youtube > Chat       | Type: Super Chat       | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Super Sticker    | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Jewels Gifted    | Enabled: Yes | Criteria: Any
@@ -33,84 +33,82 @@ public class CPHInline
             return false;
         }
 
-        Evento evento;
+        Doacao doacao;
 
         switch (triggerName)
         {
             case "Tip":
-                evento = LerTip();
+                doacao = LerTip();
                 break;
             case "Super Chat":
             case "Super Sticker":
-                evento = LerSuperChatSticker();
+                doacao = LerSuperChatSticker();
                 break;
             case "New Sponsor":
             case "Member Milestone":
-                evento = LerMembro();
+                doacao = LerMembro();
                 break;
             case "Membership Gift":
-                evento = LerPresentesDeMembro();
+                doacao = LerPresentesDeMembro();
                 break;
             case "Jewels Gifted":
-                evento = LerJoias();
+                doacao = LerJoias();
                 break;
             default:
                 LogError($"Tipo de evento não suportado: {triggerName}.");
                 return false;
         }
 
-        if (evento == null)
+        if (doacao == null)
         {
             return false;
         }
 
         var broadcaster = CPH.YouTubeGetBroadcaster();
+        doacao.BroadcastUserId = broadcaster?.UserId ?? "";
+        doacao.BroadcastUserName = string.IsNullOrEmpty(broadcaster?.UserName) ? "YOUTUBE" : broadcaster?.UserName;
 
-        evento.BroadcastUserId = broadcaster?.UserId ?? "";
-        evento.BroadcastUserName = string.IsNullOrEmpty(broadcaster?.UserName) ? "YOUTUBE" : broadcaster?.UserName;
-        evento.TriggerName = triggerName;
+        doacao.ProcessamentoId = Guid.NewGuid().ToString("D");
+        doacao.Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        doacao.TriggerName = triggerName;
 
-        decimal valorEmBRL;
-
-        double pontosMeta;
-
-        string processamentoId = Guid.NewGuid().ToString("D");
-        string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-
-        if (!CalcularDoacao(evento, out valorEmBRL, out pontosMeta))
+        if (!CalcularDoacao(doacao))
         {
             return false;
         }
 
-        int pontosMetaInt = (int)Math.Round(pontosMeta);
+        doacao.CurrencyCode = doacao.CurrencyCode ?? "BRL";
 
-        PrepararArgumentos(evento, processamentoId, timestamp, valorEmBRL, pontosMeta, pontosMetaInt);
+        PrepararArgumentosDoacao(doacao);
 
-        if ((evento.IsNewSponsor || evento.IsMemberMilestone) && EventoDuplicado(evento))
+        if ((doacao.IsNewSponsor || doacao.IsMemberMilestone) && DoacaoDuplicada(doacao))
         {
             return true;
         }
+
+        CPH.SetArgument("contextoJson", JsonConvert.SerializeObject(new Contexto { Doacao = doacao }));
 
         // Youtube Recompensar Doações: calcula a recompensa e solicita o crédito de moedas.
         string erro;
 
         bool sucesso = true;
         bool recompensou = ExecutarMetodo("Youtube Recompensar Doações", "RecompensarDoacao", out erro);
-        bool creditoConfirmado = LerTexto("doacaoCreditoStatus") == "creditado";
+        bool recebeuResultado = ReceberResultadoRecompensa(doacao);
+        bool creditoConfirmado = doacao.CreditoStatus == "creditado";
 
-        if (!recompensou || !creditoConfirmado)
+        PublicarResultadoRecompensa(doacao);
+
+        if (!recompensou || !recebeuResultado || !creditoConfirmado)
         {
             sucesso = false;
 
             RegistrarFalha("moedas", LerTexto("doacaoCreditoStatus"), ComporMensagemErro(erro, LerTexto("doacaoCreditoErro")));
-            Avisar(creditoConfirmado ? "⚠ Crédito de moedas confirmado, mas houve uma falha posterior. Confira o log." : "❌ Falha técnica ao adicionar moedas.", evento.BroadcastId);
+            EnviarMensagem(creditoConfirmado ? "⚠ Crédito de moedas confirmado, mas houve uma falha posterior. Confira o log." : "❌ Falha técnica ao adicionar moedas.", doacao.BroadcastId, somenteNaTransmissao: true);
         }
 
         // Youtube Gerente de Banco de Dados: registra a doação e as moedas confirmadas.
         // Só registra como moedaGanha o crédito confirmado. A quantidade calculada fica no log de recuperação.
-        CPH.TryGetArg("doacaoMoedasCalculadas", out int moedasCalculadas);
-
-        CPH.SetArgument("doacaoMoedaGanha", creditoConfirmado ? moedasCalculadas : 0);
+        CPH.SetArgument("doacaoMoedaGanha", doacao.MoedaGanha);
 
         bool salvou = ExecutarMetodo("Youtube Gerente de Banco de Dados", "SalvarDoacao", out erro);
         bool registroConfirmado = LerTexto("doacaoRegistroStatus") == "salvo";
@@ -120,28 +118,31 @@ public class CPHInline
             sucesso = false;
 
             RegistrarFalha("registro", LerTexto("doacaoRegistroStatus"), ComporMensagemErro(erro, LerTexto("doacaoRegistroErro")));
-            Avisar(registroConfirmado ? "⚠ Doação registrada, mas houve uma falha posterior. Confira o log." : "❌ Falha técnica ao registrar a doação. Dados para conferência no log.", evento.BroadcastId);
+            EnviarMensagem(registroConfirmado ? "⚠ Doação registrada, mas houve uma falha posterior. Confira o log." : "❌ Falha técnica ao registrar a doação. Dados para conferência no log.", doacao.BroadcastId, somenteNaTransmissao: true);
         }
 
         // Youtube Gerente de Timer: processa o tempo da Maratona com os pontos da doação.
-        CPH.SetArgument("timerUsuario", evento.Usuario);
-        CPH.SetArgument("timerTipoAcao", evento.TriggerName);
-        CPH.SetArgument("timerTier", evento.Tier ?? "");
-        CPH.SetArgument("timerPontosMeta", pontosMeta);
+        CPH.SetArgument("timerUsuario", doacao.Usuario);
+        CPH.SetArgument("timerTipoAcao", doacao.TriggerName);
+        CPH.SetArgument("timerTier", doacao.Tier ?? "");
+        CPH.SetArgument("timerPontosMeta", doacao.PontosMetaExatos);
 
         bool adicionouTempo = ExecutarMetodo("Youtube Gerente de Timer", "AdicionarTempoPorDoacao", out erro);
 
-        string statusTimer = LerTexto("timerDoacaoStatus");
+        doacao.TimerStatus = LerTexto("timerDoacaoStatus");
 
-        if (!adicionouTempo || (statusTimer != "aplicado" && statusTimer != "ignorado"))
+        if (!adicionouTempo || (doacao.TimerStatus != "aplicado" && doacao.TimerStatus != "ignorado"))
         {
             sucesso = false;
 
-            RegistrarFalha("timer", statusTimer, ComporMensagemErro(erro, LerTexto("timerDoacaoErro")));
-            Avisar(statusTimer == "aplicado" ? "⚠ Tempo da doação salvo, mas houve uma falha ao atualizar a exibição da Maratona. Confira o log." : "❌ Falha técnica ao processar tempo da doação.", evento.BroadcastId);
+            RegistrarFalha("timer", doacao.TimerStatus, ComporMensagemErro(erro, LerTexto("timerDoacaoErro")));
+            EnviarMensagem(doacao.TimerStatus == "aplicado" ? "⚠ Tempo da doação salvo, mas houve uma falha ao atualizar a exibição da Maratona. Confira o log." : "❌ Falha técnica ao processar tempo da doação.", doacao.BroadcastId, somenteNaTransmissao: true);
         }
 
         // Youtube Recompensar Doações: envia a mensagem com o resultado da recompensa.
+        AtualizarResultadosDoacao(doacao);
+        CPH.SetArgument("contextoJson", JsonConvert.SerializeObject(new Contexto { Doacao = doacao }));
+
         if (!ExecutarMetodo("Youtube Recompensar Doações", "EnviarAgradecimento", out erro))
         {
             sucesso = false;
@@ -150,7 +151,7 @@ public class CPHInline
 
         // Youtube Gerente de Minecraft: encaminha a doação quando a integração está habilitada.
         bool minecraftBridgeEnabled = CPH.GetGlobalVar<bool>("minecraftYoutubeBridgeEnabled", true);
-        if (minecraftBridgeEnabled && (evento.TriggerName == "Tip" || evento.TriggerName == "Super Chat" || evento.TriggerName == "Super Sticker"))
+        if (minecraftBridgeEnabled && (doacao.TriggerName == "Tip" || doacao.TriggerName == "Super Chat" || doacao.TriggerName == "Super Sticker"))
         {
             CPH.SetArgument("minecraftAceito", false);
             CPH.SetArgument("minecraftStatus", "NAO_ENVIADO");
@@ -168,11 +169,13 @@ public class CPHInline
         }
 
         CPH.SetArgument("doacaoProcessamentoSucesso", sucesso);
+        AtualizarResultadosDoacao(doacao);
+        CPH.SetArgument("contextoJson", JsonConvert.SerializeObject(new Contexto { Doacao = doacao }));
 
         return true;
     }
 
-    private Evento LerTip()
+    private Doacao LerTip()
     {
         CPH.TryGetArg("tipAmount", out double tipAmount);
         CPH.TryGetArg("tipUsername", out string tipUsername);
@@ -187,9 +190,9 @@ public class CPHInline
 
         string broadcastId = CPH.YouTubeGetMonitoredBroadcasts()?.FirstOrDefault(b => b.Title?.Contains("🔴") == true)?.Id ?? "";
 
-        Evento evento = new Evento
+        Doacao doacao = new Doacao
         {
-            Valor = valor,
+            ValorOriginal = valor,
             UsuarioId = "",
             Usuario = tipUsername ?? "",
             CurrencyCode = tipCurrency?.Trim().ToUpperInvariant(),
@@ -198,55 +201,55 @@ public class CPHInline
             BroadcastId = broadcastId,
         };
 
-        return evento;
+        return doacao;
     }
 
-    private Evento LerSuperChatSticker()
+    private Doacao LerSuperChatSticker()
     {
-        Evento evento = LerEventoYoutube();
+        Doacao doacao = LerDoacaoYoutube();
 
         CPH.TryGetArg("microAmount", out long microAmount);
         CPH.TryGetArg("currencyCode", out string currencyCode);
 
-        evento.Valor = microAmount / (decimal)MicroUnidadesPorUnidadeMonetaria;
-        evento.CurrencyCode = currencyCode?.Trim().ToUpperInvariant();
+        doacao.ValorOriginal = microAmount / (decimal)MicroUnidadesPorUnidadeMonetaria;
+        doacao.CurrencyCode = currencyCode?.Trim().ToUpperInvariant();
 
-        return evento;
+        return doacao;
     }
 
-    private Evento LerMembro()
+    private Doacao LerMembro()
     {
-        Evento evento = LerEventoYoutube();
+        Doacao doacao = LerDoacaoYoutube();
 
         CPH.TryGetArg("months", out int months);
         CPH.TryGetArg("levelName", out string levelName);
 
-        evento.Months = months > 0 ? months : 1;
-        evento.Tier = levelName;
-        evento.Valor = ObterValorTier(levelName);
-        evento.CurrencyCode = "BRL";
+        doacao.Months = months > 0 ? months : 1;
+        doacao.Tier = levelName;
+        doacao.ValorOriginal = ObterValorTier(levelName);
+        doacao.CurrencyCode = "BRL";
 
-        return evento;
+        return doacao;
     }
 
-    private Evento LerPresentesDeMembro()
+    private Doacao LerPresentesDeMembro()
     {
-        Evento evento = LerEventoYoutube();
+        Doacao doacao = LerDoacaoYoutube();
 
         CPH.TryGetArg("count", out int count);
         CPH.TryGetArg("tier", out string tier);
 
-        evento.QuantidadeGifts = count > 0 ? count : 1;
-        evento.Tier = tier;
-        evento.Valor = ObterValorTier(tier) * evento.QuantidadeGifts;
-        evento.CurrencyCode = "BRL";
+        doacao.QuantidadeGifts = count > 0 ? count : 1;
+        doacao.Tier = tier;
+        doacao.ValorOriginal = ObterValorTier(tier) * doacao.QuantidadeGifts;
+        doacao.CurrencyCode = "BRL";
 
-        return evento;
+        return doacao;
     }
 
-    private Evento LerJoias()
+    private Doacao LerJoias()
     {
-        Evento evento = LerEventoYoutube();
+        Doacao doacao = LerDoacaoYoutube();
 
         CPH.TryGetArg("gift.jewelsAmount", out double jewelsAmount);
         if (!TentarConverterValorMonetario(jewelsAmount, "gift.jewelsAmount", out decimal quantidadeJoias))
@@ -254,14 +257,14 @@ public class CPHInline
             return null;
         }
 
-        evento.JewelsAmount = jewelsAmount;
-        evento.Valor = quantidadeJoias / JoiasPorDolar; // 2 Joias = 0,01 Dólar.
-        evento.CurrencyCode = "USD";
+        doacao.JewelsAmount = jewelsAmount;
+        doacao.ValorOriginal = quantidadeJoias / JoiasPorDolar; // 2 Joias = 0,01 Dólar.
+        doacao.CurrencyCode = "USD";
 
-        return evento;
+        return doacao;
     }
 
-    private Evento LerEventoYoutube()
+    private Doacao LerDoacaoYoutube()
     {
         // Identificação compartilhada pelos eventos nativos do YouTube.
         CPH.TryGetArg("userId", out string usuarioId);
@@ -269,7 +272,7 @@ public class CPHInline
         CPH.TryGetArg("messageId", out string messageId);
         CPH.TryGetArg("broadcast.id", out string broadcastId);
 
-        Evento evento = new Evento
+        Doacao doacao = new Doacao
         {
             UsuarioId = usuarioId,
             Usuario = usuario,
@@ -277,7 +280,7 @@ public class CPHInline
             BroadcastId = broadcastId,
         };
 
-        return evento;
+        return doacao;
     }
 
     private bool TentarConverterValorMonetario(double valor, string argumento, out decimal valorMonetario)
@@ -313,14 +316,14 @@ public class CPHInline
         return precosTier.TryGetValue(tier ?? "", out decimal preco) ? preco : 0m;
     }
 
-    private bool CalcularDoacao(Evento evento, out decimal valorEmBRL, out double pontosMeta)
+    private bool CalcularDoacao(Doacao doacao)
     {
-        valorEmBRL = 0m;
-        pontosMeta = 0;
+        doacao.ValorBRL = 0m;
+        doacao.PontosMetaExatos = 0;
 
         double valorConversao;
 
-        switch (evento.TriggerName)
+        switch (doacao.TriggerName)
         {
             case "Tip":
                 valorConversao = FatorPontosTip;
@@ -338,28 +341,30 @@ public class CPHInline
                 valorConversao = FatorPontosJoias;
                 break;
             default:
-                LogWarn($"Tipo de ação não tratado: '{evento.TriggerName}'. Ignorado.");
+                LogWarn($"Tipo de ação não tratado: '{doacao.TriggerName}'. Ignorado.");
                 return false;
         }
 
         try
         {
-            valorEmBRL = evento.IsNewSponsor || evento.IsMemberMilestone || evento.IsMembershipGift ? evento.Valor : ConverterParaBRL(evento.Valor, evento.CurrencyCode);
+            doacao.ValorBRL = doacao.IsNewSponsor || doacao.IsMemberMilestone || doacao.IsMembershipGift ? doacao.ValorOriginal : ConverterParaBRL(doacao.ValorOriginal, doacao.CurrencyCode);
         }
         catch (OverflowException ex)
         {
-            LogError($"Valor da doação fora do intervalo monetário, sem processamento: {JsonConvert.SerializeObject(evento)}. {ex.Message}");
+            LogError($"Valor da doação fora do intervalo monetário, sem processamento: {JsonConvert.SerializeObject(doacao)}. {ex.Message}");
             return false;
         }
 
         // Pontos permanecem double para preservar a fórmula e o contrato com o Timer.
-        pontosMeta = valorConversao * (double)valorEmBRL * PontosPorReal;
+        doacao.PontosMetaExatos = valorConversao * (double)doacao.ValorBRL * PontosPorReal;
 
-        if (string.IsNullOrWhiteSpace(evento.Usuario) || valorEmBRL <= 0m || pontosMeta > int.MaxValue || double.IsNaN(pontosMeta) || double.IsInfinity(pontosMeta))
+        if (string.IsNullOrWhiteSpace(doacao.Usuario) || doacao.ValorBRL <= 0m || doacao.PontosMetaExatos > int.MaxValue || double.IsNaN(doacao.PontosMetaExatos) || double.IsInfinity(doacao.PontosMetaExatos))
         {
-            LogError($"Doação inválida, sem processamento: {JsonConvert.SerializeObject(new { evento, valorEmBRL, pontosMeta })}");
+            LogError($"Doação inválida, sem processamento: {JsonConvert.SerializeObject(new { doacao, valorBRL = doacao.ValorBRL, pontosMeta = doacao.PontosMetaExatos })}");
             return false;
         }
+
+        doacao.PontosMeta = (int)Math.Round(doacao.PontosMetaExatos);
 
         return true;
     }
@@ -413,31 +418,31 @@ public class CPHInline
         return valor * taxa;
     }
 
-    private void PrepararArgumentos(Evento evento, string processamentoId, string timestamp, decimal valorEmBRL, double pontosMeta, int pontosMetaInt)
+    private void PrepararArgumentosDoacao(Doacao doacao)
     {
         // Os destinatários atuais ainda recebem os valores monetários como double.
-        CPH.SetArgument("doacaoMonths", evento.Months);
-        CPH.SetArgument("doacaoQuantidadeGifts", evento.QuantidadeGifts);
-        CPH.SetArgument("doacaoPontosMeta", pontosMetaInt);
+        CPH.SetArgument("doacaoMonths", doacao.Months);
+        CPH.SetArgument("doacaoQuantidadeGifts", doacao.QuantidadeGifts);
+        CPH.SetArgument("doacaoPontosMeta", doacao.PontosMeta);
 
-        CPH.SetArgument("doacaoJewelsAmount", evento.JewelsAmount);
-        CPH.SetArgument("doacaoPontosMetaExatos", pontosMeta);
+        CPH.SetArgument("doacaoJewelsAmount", doacao.JewelsAmount);
+        CPH.SetArgument("doacaoPontosMetaExatos", doacao.PontosMetaExatos);
 
-        CPH.SetArgument("doacaoValorOriginal", (double)evento.Valor);
-        CPH.SetArgument("doacaoValorBRL", (double)valorEmBRL);
+        CPH.SetArgument("doacaoValorOriginal", (double)doacao.ValorOriginal);
+        CPH.SetArgument("doacaoValorBRL", (double)doacao.ValorBRL);
 
-        CPH.SetArgument("doacaoProcessamentoId", processamentoId);
-        CPH.SetArgument("doacaoTimestamp", timestamp);
-        CPH.SetArgument("doacaoTipoAcao", evento.TriggerName);
-        CPH.SetArgument("doacaoUserId", evento.UsuarioId);
-        CPH.SetArgument("doacaoUserName", evento.Usuario);
-        CPH.SetArgument("doacaoMoedaOrigem", evento.CurrencyCode ?? "BRL");
-        CPH.SetArgument("doacaoMessageId", evento.MessageId);
-        CPH.SetArgument("doacaoMessage", evento.Message);
-        CPH.SetArgument("doacaoTier", evento.Tier);
-        CPH.SetArgument("doacaoBroadcastId", evento.BroadcastId);
-        CPH.SetArgument("doacaoBroadcastUserId", evento.BroadcastUserId);
-        CPH.SetArgument("doacaoBroadcastUserName", evento.BroadcastUserName);
+        CPH.SetArgument("doacaoProcessamentoId", doacao.ProcessamentoId);
+        CPH.SetArgument("doacaoTimestamp", doacao.Timestamp);
+        CPH.SetArgument("doacaoTipoAcao", doacao.TriggerName);
+        CPH.SetArgument("doacaoUserId", doacao.UsuarioId);
+        CPH.SetArgument("doacaoUserName", doacao.Usuario);
+        CPH.SetArgument("doacaoMoedaOrigem", doacao.CurrencyCode ?? "BRL");
+        CPH.SetArgument("doacaoMessageId", doacao.MessageId);
+        CPH.SetArgument("doacaoMessage", doacao.Message);
+        CPH.SetArgument("doacaoTier", doacao.Tier);
+        CPH.SetArgument("doacaoBroadcastId", doacao.BroadcastId);
+        CPH.SetArgument("doacaoBroadcastUserId", doacao.BroadcastUserId);
+        CPH.SetArgument("doacaoBroadcastUserName", doacao.BroadcastUserName);
 
         CPH.SetArgument("doacaoMoedasCalculadas", 0);
         CPH.SetArgument("doacaoMoedaGanha", 0);
@@ -459,12 +464,71 @@ public class CPHInline
 
     }
 
-    private bool EventoDuplicado(Evento evento)
+    private bool ReceberResultadoRecompensa(Doacao doacao)
     {
-        CPH.SetArgument("doacaoDupUserId", evento.UsuarioId);
-        CPH.SetArgument("doacaoDupBroadcastUserId", evento.BroadcastUserId);
-        CPH.SetArgument("doacaoDupTipoAcao", evento.TriggerName);
-        CPH.SetArgument("doacaoDupTier", evento.Tier ?? "");
+        try
+        {
+            Contexto contexto = ObterContexto();
+            Doacao resultado = contexto?.Doacao;
+
+            if (resultado == null || resultado.ProcessamentoId != doacao.ProcessamentoId)
+            {
+                throw new InvalidOperationException("Resposta da recompensa ausente ou de outro processamento.");
+            }
+
+            doacao.MoedasCalculadas = resultado.MoedasCalculadas;
+            doacao.MoedaGanha = resultado.CreditoStatus == "creditado" ? resultado.MoedaGanha : 0;
+            doacao.Multiplicador = resultado.Multiplicador;
+            doacao.CreditoStatus = resultado.CreditoStatus;
+            doacao.CreditoErro = resultado.CreditoErro;
+            doacao.DestinatarioId = resultado.DestinatarioId;
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            doacao.CreditoStatus = "incerto";
+            doacao.MoedaGanha = 0;
+            doacao.CreditoErro = "Falha ao receber resultado da recompensa: " + ex.Message;
+
+            LogError(doacao.CreditoErro);
+            return false;
+        }
+    }
+
+    private void PublicarResultadoRecompensa(Doacao doacao)
+    {
+        // Mantém o contrato dos consumidores e dos logs que ainda usam argumentos individuais.
+        CPH.SetArgument("doacaoMoedasCalculadas", doacao.MoedasCalculadas);
+        CPH.SetArgument("doacaoMoedaGanha", doacao.MoedaGanha);
+        CPH.SetArgument("doacaoMultiplicador", doacao.Multiplicador);
+        CPH.SetArgument("doacaoCreditoStatus", doacao.CreditoStatus);
+        CPH.SetArgument("doacaoCreditoErro", doacao.CreditoErro);
+        CPH.SetArgument("adicionarDestinatarioId", doacao.DestinatarioId);
+    }
+
+    private void AtualizarResultadosDoacao(Doacao doacao)
+    {
+        // Banco e timer ainda retornam pelos argumentos individuais durante a migração.
+        CPH.TryGetArg("doacaoProcessamentoSucesso", out bool processamentoSucesso);
+        CPH.TryGetArg("doacaoRegistroId", out long registroId);
+        CPH.TryGetArg("timerDoacaoSegundos", out int timerSegundos);
+
+        doacao.ProcessamentoSucesso = processamentoSucesso;
+        doacao.RegistroId = registroId;
+        doacao.RegistroStatus = LerTexto("doacaoRegistroStatus");
+        doacao.RegistroErro = LerTexto("doacaoRegistroErro");
+        doacao.TimerSegundos = timerSegundos;
+        doacao.TimerStatus = LerTexto("timerDoacaoStatus");
+        doacao.TimerErro = LerTexto("timerDoacaoErro");
+    }
+
+    private bool DoacaoDuplicada(Doacao doacao)
+    {
+        CPH.SetArgument("doacaoDupUserId", doacao.UsuarioId);
+        CPH.SetArgument("doacaoDupBroadcastUserId", doacao.BroadcastUserId);
+        CPH.SetArgument("doacaoDupTipoAcao", doacao.TriggerName);
+        CPH.SetArgument("doacaoDupTier", doacao.Tier ?? "");
         CPH.SetArgument("doacaoDuplicada", false);
         CPH.SetArgument("doacaoDuplicidadeErro", "");
 
@@ -478,7 +542,7 @@ public class CPHInline
 
         if (duplicado)
         {
-            LogInfo($"Evento duplicado ignorado: {JsonConvert.SerializeObject(evento)}");
+            LogInfo($"Evento duplicado ignorado: {JsonConvert.SerializeObject(doacao)}");
             CPH.SetArgument("doacaoProcessamentoSucesso", true);
         }
         return duplicado;
@@ -510,22 +574,22 @@ public class CPHInline
         return string.IsNullOrEmpty(detalhe) ? (string.IsNullOrEmpty(chamada) ? "A etapa não confirmou o resultado esperado." : chamada) : chamada + " " + detalhe;
     }
 
-    private void Avisar(string mensagem, string broadcastId)
+    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(broadcastId))
+            if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
             {
-                CPH.SendYouTubeMessage(mensagem, false, true);
+                CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
             }
             else
             {
-                CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+                CPH.SendYouTubeMessage(mensagem);
             }
         }
         catch (Exception ex)
         {
-            LogError($"Falha ao enviar aviso ao chat: {ex.Message}");
+            LogError($"Falha ao enviar mensagem ao chat: {ex.Message}");
         }
     }
 
@@ -565,31 +629,20 @@ public class CPHInline
         CPH.LogInfo(Prefixo + mensagem);
     }
 
-    public class Evento
+    private Contexto ObterContexto()
     {
-        public bool IsTip => TriggerName == "Tip";
-        public bool IsNewSponsor => TriggerName == "New Sponsor";
-        public bool IsMemberMilestone => TriggerName == "Member Milestone";
-        public bool IsMembershipGift => TriggerName == "Membership Gift";
-        public bool IsJewels => TriggerName == "Jewels Gifted";
+        CPH.TryGetArg("contextoJson", out string contextoJson);
+        if (string.IsNullOrWhiteSpace(contextoJson))
+        {
+            return null;
+        }
 
-        public int Months { get; set; }
-        public int QuantidadeGifts { get; set; } = 1;
+        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
+    }
 
-        public decimal Valor { get; set; }
-
-        public double JewelsAmount { get; set; }
-
-        public string TriggerName { get; set; }
-        public string UsuarioId { get; set; }
-        public string Usuario { get; set; }
-        public string CurrencyCode { get; set; }
-        public string MessageId { get; set; }
-        public string Message { get; set; } = "";
-        public string Tier { get; set; }
-        public string BroadcastId { get; set; }
-        public string BroadcastUserId { get; set; }
-        public string BroadcastUserName { get; set; }
+    public class Contexto
+    {
+        public Doacao Doacao { get; set; }
     }
 
     public class Doacao
