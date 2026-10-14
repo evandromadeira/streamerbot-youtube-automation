@@ -1,7 +1,7 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 261013.1830
+// Atualização 261014.1130
 public class CPHInline
 {
     private const int PremioBase = 1000;
@@ -21,9 +21,10 @@ public class CPHInline
                 LogError("ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
+
             Evento evento = contexto.Evento;
 
-            string palavraSurpresa = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true);
+            string palavraSurpresa = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", false);
             if (string.IsNullOrEmpty(palavraSurpresa))
             {
                 return true;
@@ -36,15 +37,17 @@ public class CPHInline
                 lock (moedasSurpresaLock)
                 {
                     // Confere a rodada novamente depois de obter o bloqueio.
-                    if (CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true) != palavraSurpresa)
+                    if (CPH.GetGlobalVar<string>("moedasSurpresaPalavra", false) != palavraSurpresa)
                     {
                         return true;
                     }
 
                     // Evita que o mesmo espectador ganhe mais de uma vez na mesma rodada
-                    int x = CPH.GetGlobalVar<int>("moedasSurpresaGanhadoresCount", true);
-                    string listaGanhadores = CPH.GetGlobalVar<string>("moedasSurpresaListaGanhadores", true) ?? "";
+                    int x = CPH.GetGlobalVar<int>("moedasSurpresaGanhadoresCount", false);
+
+                    string listaGanhadores = CPH.GetGlobalVar<string>("moedasSurpresaListaGanhadores", false) ?? "";
                     string buscaId = $"|{(string.IsNullOrEmpty(evento.UserId) ? evento.UserName : evento.UserId)}|";
+
                     if (x >= LimiteGanhadores)
                     {
                         return true;
@@ -84,7 +87,7 @@ public class CPHInline
                     CPH.SetArgument("adicionarErro", "");
                     CPH.SetArgument("adicionarDestinatarioId", "");
                     // Reserva antes da chamada. Uma exceção não pode permitir crédito duplicado.
-                    CPH.SetGlobalVar("moedasSurpresaListaGanhadores", listaGanhadores + buscaId, true);
+                    CPH.SetGlobalVar("moedasSurpresaListaGanhadores", listaGanhadores + buscaId, false);
 
                     bool executou = false;
 
@@ -112,17 +115,17 @@ public class CPHInline
                     if (falhou)
                     {
                         // Não houve crédito: libera o participante e mantém a posição disponível.
-                        CPH.SetGlobalVar("moedasSurpresaListaGanhadores", listaGanhadores, true);
+                        CPH.SetGlobalVar("moedasSurpresaListaGanhadores", listaGanhadores, false);
                     }
                     else
                     {
                         // Confirmado ou incerto: reserva a posição antes de qualquer mensagem.
-                        CPH.SetGlobalVar("moedasSurpresaGanhadoresCount", x + 1, true);
+                        CPH.SetGlobalVar("moedasSurpresaGanhadoresCount", x + 1, false);
                         if (x + 1 >= LimiteGanhadores)
                         {
-                            CPH.UnsetGlobalVar("moedasSurpresaPalavra", true);
-                            CPH.UnsetGlobalVar("moedasSurpresaGanhadoresCount", true);
-                            CPH.UnsetGlobalVar("moedasSurpresaListaGanhadores", true);
+                            CPH.UnsetGlobalVar("moedasSurpresaPalavra", false);
+                            CPH.UnsetGlobalVar("moedasSurpresaGanhadoresCount", false);
+                            CPH.UnsetGlobalVar("moedasSurpresaListaGanhadores", false);
                         }
                     }
 

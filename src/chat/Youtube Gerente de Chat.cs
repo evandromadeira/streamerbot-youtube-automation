@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 261013.1400
+// Atualização 261014.1100
 public class CPHInline
 {
     private const string Prefixo = "[GERENTE_DE_CHAT] ";
@@ -29,9 +29,7 @@ public class CPHInline
             string contextoJson = JsonConvert.SerializeObject(contexto);
             CPH.SetArgument("contextoJson", contextoJson);
 
-            // ------------------------------------------------------------------
             // Youtube Gerente de Banco de Dados: registra a mensagem e o usuário.
-            // ------------------------------------------------------------------
             CPH.SetArgument("chatLogIsSubscribed", evento.IsSub);
             CPH.SetArgument("chatLogIsSponsor", evento.IsSpo);
             CPH.SetArgument("chatLogIsModerator", evento.IsMod);
@@ -51,9 +49,7 @@ public class CPHInline
                 return false;
             }
 
-            // ------------------------------------------------------------------
             // Youtube Gerente de Moedas: recompensa a atividade no chat.
-            // ------------------------------------------------------------------
             bool creditou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "RecompensarAtividadeChat");
             if (!creditou)
             {
@@ -82,7 +78,7 @@ public class CPHInline
         switch (comando)
         {
             case "!meta":
-                CPH.RunAction("Youtube Consultar Meta", false);
+                CPH.ExecuteMethod("Youtube Consultar Meta", "ConsultarMeta");
                 break;
             case "!novoaudio":
                 CPH.ExecuteMethod("Youtube Gerente de Áudio", "CadastrarAudio");
@@ -144,7 +140,7 @@ public class CPHInline
                 }
 
                 // Desafio de Palavra Surpresa
-                string moedasSurpresaPalavra = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", true);
+                string moedasSurpresaPalavra = CPH.GetGlobalVar<string>("moedasSurpresaPalavra", false);
                 if (!string.IsNullOrEmpty(moedasSurpresaPalavra))
                 {
                     CPH.ExecuteMethod("Youtube Compara Palavra", "CompararPalavra");
@@ -229,9 +225,9 @@ public class CPHInline
         public string CaminhoBanco => Path.Combine(PastaStream, "YoutubeStream.db");
         public string CaminhoConfigSE => Path.Combine(PastaSE, "ConfigSE.txt");
 
-        // Construtor vazio necessário para desserialização do contexto.
         public Ambiente()
         {
+            // Construtor vazio necessário para desserialização do contexto.
         }
 
         public Ambiente(IInlineInvokeProxy CPH)

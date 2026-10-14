@@ -1,6 +1,7 @@
 using System;
+using Newtonsoft.Json;
 
-// Atualização 261012.1030
+// Atualização 261014.1055
 public class CPHInline
 {
     private const int MetaPrimeiraLiveMadeira = 60000;
@@ -11,15 +12,25 @@ public class CPHInline
 
     private const string Prefixo = "[CONSULTAR_META] ";
 
-    public bool Execute()
+    public bool ConsultarMeta()
     {
+        Evento evento = null;
+
         try
         {
-            string broadcastUserName = CPH.YouTubeGetBroadcaster()?.UserName;
-            if (string.IsNullOrWhiteSpace(broadcastUserName))
+            Contexto contexto = ObterContexto();
+            if (contexto?.Evento == null)
+            {
+                LogError("ERRO: não foi possível ler o contexto do evento.");
+                return false;
+            }
+
+            evento = contexto.Evento;
+
+            if (string.IsNullOrWhiteSpace(evento.BroadcastUserName))
             {
                 LogError("ERRO: não foi possível obter o nome do canal conectado.");
-                CPH.SendYouTubeMessage("❌ Não foi possível consultar a meta. Tente novamente.", false);
+                EnviarMensagem("❌ Não foi possível consultar a meta. Tente novamente.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -29,7 +40,7 @@ public class CPHInline
 
             for (int tentativa = 1; tentativa <= 3; tentativa++)
             {
-                CPH.SetArgument("metaBroadcastUserName", broadcastUserName);
+                CPH.SetArgument("metaBroadcastUserName", evento.BroadcastUserName);
                 CPH.SetArgument("metaConsultaSucesso", false);
                 CPH.SetArgument("metaProgressoMensal", null);
 
@@ -49,7 +60,7 @@ public class CPHInline
                     break;
                 }
 
-                LogWarn($"Consulta sem sucesso: canal '{broadcastUserName}', tentativa {tentativa}/3.");
+                LogWarn($"Consulta sem sucesso: canal '{evento.BroadcastUserName}', tentativa {tentativa}/3.");
                 if (tentativa < 3)
                 {
                     CPH.Wait(500);
@@ -58,30 +69,28 @@ public class CPHInline
 
             if (!consultou)
             {
-                LogError($"Consulta da meta falhou após 3 tentativas para o canal '{broadcastUserName}'.");
-                CPH.SendYouTubeMessage("❌ Não foi possível consultar a meta. Tente novamente.", false);
+                LogError($"Consulta da meta falhou após 3 tentativas para o canal '{evento.BroadcastUserName}'.");
+                EnviarMensagem("❌ Não foi possível consultar a meta. Tente novamente.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
-            string mensagem = MontarMensagem(broadcastUserName, progressoMensal);
+            string mensagem = MontarMensagem(evento.BroadcastUserName, progressoMensal);
 
-            CPH.SendYouTubeMessage(mensagem, false);
+            EnviarMensagem(mensagem, evento.BroadcastId, somenteNaTransmissao: true);
 
             return true;
         }
         catch (Exception ex)
         {
             LogError("ERRO CRÍTICO: " + ex.Message);
-            CPH.SendYouTubeMessage("❌ Falha técnica ao consultar a meta.");
+            EnviarMensagem("❌ Falha técnica ao consultar a meta.", evento?.BroadcastId, somenteNaTransmissao: true);
             return false;
         }
     }
 
     private string MontarMensagem(string broadcastUserName, int progressoMensal)
     {
-        // ==========================================
         // CANAL: MADEIRA (1ª Live 12h + 2ª Live 12h Fechada)
-        // ==========================================
         if (string.Equals(broadcastUserName, "madeira_on", StringComparison.OrdinalIgnoreCase))
         {
             // Fase 1: Em busca da 1ª Live
@@ -102,9 +111,7 @@ public class CPHInline
             return $"✨ Meta Mensal: {progressoMensal:N0} pts | 🏆🏆 1ª Live 12h + 2ª Live 12h 100% Batidas! 🎉 |";
         }
 
-        // ==========================================
         // CANAL: CAMPOSRAPHA (1ª Live 12h + 2ª Live Dinâmica de +1h a cada 5k)
-        // ==========================================
         else if (string.Equals(broadcastUserName, "canalcamposrapha", StringComparison.OrdinalIgnoreCase))
         {
             // Fase 1: Em busca da 1ª Live de 12h
@@ -140,13 +147,49 @@ public class CPHInline
         return $"✨ Meta Mensal: {progressoMensal:N0} pts |";
     }
 
-    private void LogWarn(string mensagem)
+    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
     {
-        CPH.LogWarn(Prefixo + mensagem);
+        // Direciona a resposta quando solicitado e há uma transmissão identificada.
+        if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
+        {
+            CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+        }
+        else
+        {
+            CPH.SendYouTubeMessage(mensagem);
+        }
     }
 
     private void LogError(string mensagem)
     {
         CPH.LogError(Prefixo + mensagem);
+    }
+
+    private void LogWarn(string mensagem)
+    {
+        CPH.LogWarn(Prefixo + mensagem);
+    }
+
+    private Contexto ObterContexto()
+    {
+        // Obtém o contexto criado pelo Gerente de Chat
+        CPH.TryGetArg("contextoJson", out string contextoJson);
+        if (string.IsNullOrEmpty(contextoJson))
+        {
+            return null;
+        }
+
+        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
+    }
+
+    public class Contexto
+    {
+        public Evento Evento { get; set; }
+    }
+
+    public class Evento
+    {
+        public string BroadcastId { get; set; }
+        public string BroadcastUserName { get; set; }
     }
 }

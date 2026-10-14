@@ -3,7 +3,7 @@ using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261013.0750
+// Atualização 261014.1130
 // Triggers -> Source: Youtube > Chat       | Type: Super Chat       | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Super Sticker    | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Jewels Gifted    | Enabled: Yes | Criteria: Any
@@ -91,9 +91,7 @@ public class CPHInline
             return true;
         }
 
-        // ------------------------------------------------------------------
         // Youtube Recompensar Doações: calcula a recompensa e solicita o crédito de moedas.
-        // ------------------------------------------------------------------
         string erro;
 
         bool sucesso = true;
@@ -108,9 +106,7 @@ public class CPHInline
             Avisar(creditoConfirmado ? "⚠ Crédito de moedas confirmado, mas houve uma falha posterior. Confira o log." : "❌ Falha técnica ao adicionar moedas.", evento.BroadcastId);
         }
 
-        // ------------------------------------------------------------------
         // Youtube Gerente de Banco de Dados: registra a doação e as moedas confirmadas.
-        // ------------------------------------------------------------------
         // Só registra como moedaGanha o crédito confirmado. A quantidade calculada fica no log de recuperação.
         CPH.TryGetArg("doacaoMoedasCalculadas", out int moedasCalculadas);
 
@@ -127,9 +123,7 @@ public class CPHInline
             Avisar(registroConfirmado ? "⚠ Doação registrada, mas houve uma falha posterior. Confira o log." : "❌ Falha técnica ao registrar a doação. Dados para conferência no log.", evento.BroadcastId);
         }
 
-        // ------------------------------------------------------------------
         // Youtube Gerente de Timer: processa o tempo da Maratona com os pontos da doação.
-        // ------------------------------------------------------------------
         CPH.SetArgument("timerUsuario", evento.Usuario);
         CPH.SetArgument("timerTipoAcao", evento.TriggerName);
         CPH.SetArgument("timerTier", evento.Tier ?? "");
@@ -147,18 +141,14 @@ public class CPHInline
             Avisar(statusTimer == "aplicado" ? "⚠ Tempo da doação salvo, mas houve uma falha ao atualizar a exibição da Maratona. Confira o log." : "❌ Falha técnica ao processar tempo da doação.", evento.BroadcastId);
         }
 
-        // ------------------------------------------------------------------
         // Youtube Recompensar Doações: envia a mensagem com o resultado da recompensa.
-        // ------------------------------------------------------------------
         if (!ExecutarMetodo("Youtube Recompensar Doações", "EnviarAgradecimento", out erro))
         {
             sucesso = false;
             RegistrarFalha("agradecimento", "incerto", erro);
         }
 
-        // ------------------------------------------------------------------
         // Youtube Gerente de Minecraft: encaminha a doação quando a integração está habilitada.
-        // ------------------------------------------------------------------
         bool minecraftBridgeEnabled = CPH.GetGlobalVar<bool>("minecraftYoutubeBridgeEnabled", true);
         if (minecraftBridgeEnabled && (evento.TriggerName == "Tip" || evento.TriggerName == "Super Chat" || evento.TriggerName == "Super Sticker"))
         {
@@ -560,9 +550,9 @@ public class CPHInline
         LogError($"RECUPERACAO_MANUAL {JsonConvert.SerializeObject(dados)}");
     }
 
-    private void LogInfo(string mensagem)
+    private void LogError(string mensagem)
     {
-        CPH.LogInfo(Prefixo + mensagem);
+        CPH.LogError(Prefixo + mensagem);
     }
 
     private void LogWarn(string mensagem)
@@ -570,9 +560,9 @@ public class CPHInline
         CPH.LogWarn(Prefixo + mensagem);
     }
 
-    private void LogError(string mensagem)
+    private void LogInfo(string mensagem)
     {
-        CPH.LogError(Prefixo + mensagem);
+        CPH.LogInfo(Prefixo + mensagem);
     }
 
     public class Evento

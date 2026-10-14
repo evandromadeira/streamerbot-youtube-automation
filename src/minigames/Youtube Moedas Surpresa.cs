@@ -1,13 +1,19 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 
-// Atualização 261003.1010
+// Atualização 261014.1120
 public class CPHInline
 {
+    private const int TempoEsperaMinimoSegundos = 60;
+    private const int TempoEsperaMaximoSegundos = 1800;
+    private const int TempoEsperaEnvioMensagemSegundos = 30;
+
+    private const string Prefixo = "[MOEDAS SURPRESA] ";
+
     public bool Execute()
     {
         bool isContinuacao = CPH.GetGlobalVar<bool>("moedasSurpresaContinuacao", false);
-
         if (isContinuacao)
         {
             CPH.UnsetGlobalVar("moedasSurpresaContinuacao", false);
@@ -15,10 +21,9 @@ public class CPHInline
         else
         {
             bool jaAtivo = CPH.GetGlobalVar<bool>("moedasSurpresaAtivo", false); // non-persisted
-
             if (jaAtivo)
             {
-                CPH.LogInfo(">>> [MOEDAS SURPRESA] Já existe um ciclo em execução, ignorando novo start.");
+                LogInfo("Já existe um ciclo em execução, ignorando novo start.");
                 return true;
             }
 
@@ -28,9 +33,10 @@ public class CPHInline
         try
         {
             Random rnd = new Random();
-            int tempoEsperaSegundos = rnd.Next(15, 1801);
 
-            CPH.LogInfo($">>> [MOEDAS SURPRESA] Aguardando {tempoEsperaSegundos} segundos para lançar o evento...");
+            int tempoEsperaSegundos = rnd.Next(TempoEsperaMinimoSegundos, TempoEsperaMaximoSegundos + 1);
+
+            LogInfo($"Aguardando {tempoEsperaSegundos} segundos para lançar o evento...");
             CPH.Wait(tempoEsperaSegundos * 1000);
 
             List<string> palavras = new List<string>
@@ -60,20 +66,22 @@ public class CPHInline
             string palavraSorteada = palavras[rnd.Next(palavras.Count)];
 
             // Inicializa as variáveis globais alinhadas com o Compara Palavra
-            CPH.SetGlobalVar("moedasSurpresaGanhadoresCount", 0, true);
-            CPH.SetGlobalVar("moedasSurpresaListaGanhadores", "", true);
-            CPH.SetGlobalVar("moedasSurpresaPalavra", palavraSorteada, true);
+            CPH.SetGlobalVar("moedasSurpresaGanhadoresCount", 0, false);
+            CPH.SetGlobalVar("moedasSurpresaListaGanhadores", "", false);
+            CPH.SetGlobalVar("moedasSurpresaPalavra", palavraSorteada, false);
+
+            string broadcastId = CPH.YouTubeGetMonitoredBroadcasts()?.FirstOrDefault(b => b.Title?.Contains("🔴") == true)?.Id ?? "";
 
             // Dispara o anúncio diretamente no chat do YouTube
-            CPH.SendYouTubeMessage($"🎈 [MOEDAS SURPRESA] Os 3 primeiros a enviarem {palavraSorteada} no chat vão ganhar Moedas!", false);
-            CPH.LogInfo($">>> [MOEDAS SURPRESA] Evento ativo! Palavra: {palavraSorteada}");
-            CPH.Wait(30000);
+            EnviarMensagem($"🎈 MOEDAS SURPRESA - Os 3 primeiros a enviarem {palavraSorteada} ganharão moedas do canal!", broadcastId, somenteNaTransmissao: true);
+            LogInfo($"Evento ativo! Palavra: {palavraSorteada}");
+            CPH.Wait(TempoEsperaEnvioMensagemSegundos * 1000);
 
-            CPH.UnsetGlobalVar("moedasSurpresaPalavra", true);
-            CPH.UnsetGlobalVar("moedasSurpresaGanhadoresCount", true);
-            CPH.UnsetGlobalVar("moedasSurpresaListaGanhadores", true);
+            CPH.UnsetGlobalVar("moedasSurpresaPalavra", false);
+            CPH.UnsetGlobalVar("moedasSurpresaGanhadoresCount", false);
+            CPH.UnsetGlobalVar("moedasSurpresaListaGanhadores", false);
 
-            CPH.LogInfo(">>> [MOEDAS SURPRESA] Tempo esgotado! Variáveis limpas.");
+            LogInfo("Tempo esgotado! Variáveis limpas.");
 
             // Reinicia o ciclo chamando a Action atualizada, marcando como continuação
             CPH.SetGlobalVar("moedasSurpresaContinuacao", true, false);
@@ -83,12 +91,38 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [MOEDAS SURPRESA] ERRO CRÍTICO: " + ex.Message);
+            // Encerra a rodada, limpa os dados e libera a trava do ciclo.
+            CPH.UnsetGlobalVar("moedasSurpresaPalavra", false);
+            CPH.UnsetGlobalVar("moedasSurpresaGanhadoresCount", false);
+            CPH.UnsetGlobalVar("moedasSurpresaListaGanhadores", false);
+            CPH.UnsetGlobalVar("moedasSurpresaAtivo", false);
 
-            // Libera a trava para não travar o sistema numa live futura
-            CPH.UnsetGlobalVar("moedasSurpresaAtivo", false); // non-persisted
+            LogError("ERRO CRÍTICO: " + ex.Message);
 
             return false;
         }
+    }
+
+    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
+    {
+        // Direciona a resposta quando solicitado e há uma transmissão identificada.
+        if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
+        {
+            CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+        }
+        else
+        {
+            CPH.SendYouTubeMessage(mensagem);
+        }
+    }
+
+    private void LogError(string mensagem)
+    {
+        CPH.LogError(Prefixo + mensagem);
+    }
+
+    private void LogInfo(string mensagem)
+    {
+        CPH.LogInfo(Prefixo + mensagem);
     }
 }
