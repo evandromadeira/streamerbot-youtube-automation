@@ -5,9 +5,11 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-// Atualização 261013.1825
+// Atualização 261015.1120
 public class CPHInline
 {
+    private const int LimiteMensagem = 200;
+
     private const string Prefixo = "[IMPORTAR_MOEDAS_SE] ";
 
     public bool ImportarMoedasStreamElements()
@@ -43,6 +45,7 @@ public class CPHInline
             }
 
             twitchUser = partes[1].Trim();
+
             string qtdInput = partes[2].Trim().ToLowerInvariant();
 
             if (string.IsNullOrEmpty(ambiente.PastaSE))
@@ -193,9 +196,9 @@ public class CPHInline
     {
         try
         {
-            if (mensagem.Length > 200)
+            if (mensagem.Length > LimiteMensagem)
             {
-                mensagem = mensagem.Substring(0, 197) + "...";
+                mensagem = mensagem.Substring(0, LimiteMensagem - 3) + "...";
             }
             EnviarMensagem(mensagem, broadcastId, somenteNaTransmissao: true);
         }
@@ -228,11 +231,11 @@ public class CPHInline
         // Direciona a resposta quando solicitado e há uma transmissão identificada.
         if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
         {
-            CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
         }
         else
         {
-            CPH.SendYouTubeMessage(mensagem);
+            CPH.SendYouTubeMessage(mensagem, true, true);
         }
     }
 
@@ -262,6 +265,7 @@ public class CPHInline
     {
         public string DebitoStatus { get; private set; } = "nao_iniciado";
         public string UltimoErro { get; private set; } = "";
+
         private readonly string jwtToken;
         private readonly string idCanal;
 

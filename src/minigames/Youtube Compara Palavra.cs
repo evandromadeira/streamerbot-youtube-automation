@@ -1,11 +1,12 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 261014.1130
+// Atualização 261015.1120
 public class CPHInline
 {
     private const int PremioBase = 1000;
     private const int LimiteGanhadores = 3;
+    private const int LimiteMensagem = 200;
 
     private const string Prefixo = "[COMPARA_PALAVRA] ";
 
@@ -145,14 +146,12 @@ public class CPHInline
                         1 => "🥈 2º Lugar",
                         _ => "🥉 3º Lugar"
                     };
-
                     string detalheCargo = multiplicador switch
                     {
                         3 => " (Inscrito & Membro - 3x!)",
                         2 => evento.IsSpo ? " (Membro - 2x!)" : " (Inscrito - 2x!)",
                         _ => ""
                     };
-
                     string mensagemSucesso = $"{posicaoTexto}: @{evento.UserName} digitou rápido e ganhou {moedasFinais:N0} Moedas!{detalheCargo}";
 
                     Avisar(mensagemSucesso, evento.BroadcastId, somenteNaTransmissao: true);
@@ -172,9 +171,9 @@ public class CPHInline
     {
         try
         {
-            if (mensagem.Length > 200)
+            if (mensagem.Length > LimiteMensagem)
             {
-                mensagem = mensagem.Substring(0, 197) + "...";
+                mensagem = mensagem.Substring(0, LimiteMensagem - 3) + "...";
             }
 
             EnviarMensagem(mensagem, broadcastId, somenteNaTransmissao);
@@ -190,11 +189,11 @@ public class CPHInline
         // Direciona a resposta quando solicitado e há uma transmissão identificada.
         if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
         {
-            CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
         }
         else
         {
-            CPH.SendYouTubeMessage(mensagem);
+            CPH.SendYouTubeMessage(mensagem, true, true);
         }
     }
 

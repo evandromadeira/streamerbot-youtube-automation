@@ -1,7 +1,7 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 261014.1055
+// Atualização 261016.0740
 public class CPHInline
 {
     private const int MetaPrimeiraLiveMadeira = 60000;
@@ -9,6 +9,8 @@ public class CPHInline
     private const int MetaBaseRapha = 60000;
     private const int PontosPorHoraExtraRapha = 5000;
     private const int MaxHorasSegundaLiveRapha = 12;
+    private const int MaxTentativasConsulta = 3;
+    private const int IntervaloTentativasMilissegundos = 500;
 
     private const string Prefixo = "[CONSULTAR_META] ";
 
@@ -26,7 +28,6 @@ public class CPHInline
             }
 
             evento = contexto.Evento;
-
             if (string.IsNullOrWhiteSpace(evento.BroadcastUserName))
             {
                 LogError("ERRO: não foi possível obter o nome do canal conectado.");
@@ -38,7 +39,7 @@ public class CPHInline
 
             int progressoMensal = 0;
 
-            for (int tentativa = 1; tentativa <= 3; tentativa++)
+            for (int tentativa = 1; tentativa <= MaxTentativasConsulta; tentativa++)
             {
                 CPH.SetArgument("metaBroadcastUserName", evento.BroadcastUserName);
                 CPH.SetArgument("metaConsultaSucesso", false);
@@ -52,7 +53,7 @@ public class CPHInline
                 }
                 catch (Exception ex)
                 {
-                    LogWarn($"Tentativa {tentativa}/3 lançou erro: {ex.Message}");
+                    LogWarn($"Tentativa {tentativa}/{MaxTentativasConsulta} lançou erro: {ex.Message}");
                 }
 
                 if (consultou)
@@ -60,16 +61,16 @@ public class CPHInline
                     break;
                 }
 
-                LogWarn($"Consulta sem sucesso: canal '{evento.BroadcastUserName}', tentativa {tentativa}/3.");
-                if (tentativa < 3)
+                LogWarn($"Consulta sem sucesso: canal '{evento.BroadcastUserName}', tentativa {tentativa}/{MaxTentativasConsulta}.");
+                if (tentativa < MaxTentativasConsulta)
                 {
-                    CPH.Wait(500);
+                    CPH.Wait(IntervaloTentativasMilissegundos);
                 }
             }
 
             if (!consultou)
             {
-                LogError($"Consulta da meta falhou após 3 tentativas para o canal '{evento.BroadcastUserName}'.");
+                LogError($"Consulta da meta falhou após {MaxTentativasConsulta} tentativas para o canal '{evento.BroadcastUserName}'.");
                 EnviarMensagem("❌ Não foi possível consultar a meta. Tente novamente.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
@@ -152,11 +153,11 @@ public class CPHInline
         // Direciona a resposta quando solicitado e há uma transmissão identificada.
         if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
         {
-            CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
         }
         else
         {
-            CPH.SendYouTubeMessage(mensagem);
+            CPH.SendYouTubeMessage(mensagem, true, true);
         }
     }
 
@@ -172,7 +173,6 @@ public class CPHInline
 
     private Contexto ObterContexto()
     {
-        // Obtém o contexto criado pelo Gerente de Chat
         CPH.TryGetArg("contextoJson", out string contextoJson);
         if (string.IsNullOrEmpty(contextoJson))
         {

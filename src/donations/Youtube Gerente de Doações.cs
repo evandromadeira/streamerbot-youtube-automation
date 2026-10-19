@@ -3,7 +3,7 @@ using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261014.1635
+// Atualização 261016.0740
 // Triggers -> Source: Youtube > Chat       | Type: Super Chat       | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Super Sticker    | Enabled: Yes | Criteria: Any
 //          -> Source: Youtube > Chat       | Type: Jewels Gifted    | Enabled: Yes | Criteria: Any
@@ -461,7 +461,6 @@ public class CPHInline
         CPH.SetArgument("timerDoacaoErro", "");
 
         CPH.SetArgument("adicionarDestinatarioId", "");
-
     }
 
     private bool ReceberResultadoRecompensa(Doacao doacao)
@@ -469,8 +468,8 @@ public class CPHInline
         try
         {
             Contexto contexto = ObterContexto();
-            Doacao resultado = contexto?.Doacao;
 
+            Doacao resultado = contexto?.Doacao;
             if (resultado == null || resultado.ProcessamentoId != doacao.ProcessamentoId)
             {
                 throw new InvalidOperationException("Resposta da recompensa ausente ou de outro processamento.");
@@ -576,15 +575,16 @@ public class CPHInline
 
     private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
     {
+        // Direciona a resposta quando solicitado e há uma transmissão identificada.
         try
         {
             if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
             {
-                CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+                CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
             }
             else
             {
-                CPH.SendYouTubeMessage(mensagem);
+                CPH.SendYouTubeMessage(mensagem, true, true);
             }
         }
         catch (Exception ex)

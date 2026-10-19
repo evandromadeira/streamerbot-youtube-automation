@@ -5,33 +5,38 @@ using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261003.1205
+// Atualização 261016.0905
 public class CPHInline
 {
+    private const string Prefixo = "[GERENTE_AUDIO] ";
+
     public bool CadastrarAudio()
     {
+        Evento evento = null;
+
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null || contexto.Ambiente == null)
             {
-                CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO: não foi possível ler o contexto do evento.");
+                LogError("ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
-            Evento evento = contexto.Evento;
+
+            evento = contexto.Evento;
             Ambiente ambiente = contexto.Ambiente;
 
             bool ehDono = !string.IsNullOrEmpty(evento.BroadcastUserId) && evento.UserId == evento.BroadcastUserId;
             if (!evento.IsMod && !ehDono)
             {
-                CPH.SendYouTubeMessage($"❌ @{evento.UserName}, apenas moderadores podem cadastrar áudios.");
+                EnviarMensagem($"❌ @{evento.UserName}, apenas moderadores podem cadastrar áudios.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (partes.Length != 5)
             {
-                CPH.SendYouTubeMessage("⚠ Uso correto: !novoaudio [apelidos separados por vírgula] [custo] [cooldown em segundos] [arquivo.mp3]");
+                EnviarMensagem("⚠ Uso correto: !novoaudio [apelidos separados por vírgula] [custo] [cooldown em segundos] [arquivo.mp3]", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -42,32 +47,32 @@ public class CPHInline
 
             if (!int.TryParse(custoStr, out int custo) || custo < 0)
             {
-                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, o custo precisa ser um número inteiro maior ou igual a zero.");
+                EnviarMensagem($"⚠ @{evento.UserName}, o custo precisa ser um número inteiro maior ou igual a zero.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             if (!int.TryParse(cooldownStr, out int cooldownSegundos) || cooldownSegundos < 0)
             {
-                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, o cooldown precisa ser um número inteiro de segundos maior ou igual a zero.");
+                EnviarMensagem($"⚠ @{evento.UserName}, o cooldown precisa ser um número inteiro de segundos maior ou igual a zero.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             if (!arquivo.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
             {
-                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, o arquivo precisa terminar em .mp3");
+                EnviarMensagem($"⚠ @{evento.UserName}, o arquivo precisa terminar em .mp3", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             if (arquivo.Contains("/") || arquivo.Contains("\\") || arquivo.Contains(".."))
             {
-                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, o nome do arquivo não pode conter caminhos (só o nome do .mp3).");
+                EnviarMensagem($"⚠ @{evento.UserName}, o nome do arquivo não pode conter caminhos (só o nome do .mp3).", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             string caminhoArquivo = Path.Combine(ambiente.PastaAudios, arquivo);
             if (!File.Exists(caminhoArquivo))
             {
-                CPH.SendYouTubeMessage($"❌ @{evento.UserName}, arquivo '{arquivo}' não encontrado na pasta de áudios.");
+                EnviarMensagem($"❌ @{evento.UserName}, arquivo '{arquivo}' não encontrado na pasta de áudios.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -81,19 +86,21 @@ public class CPHInline
             
             if (aliases.Count == 0)
             {
-                CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, informe pelo menos um comando (ex: hidratação,agua).");
+                EnviarMensagem($"⚠ @{evento.UserName}, informe pelo menos um comando (ex: hidratação,agua).", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             CPH.SetArgument("grupoAudioAliasesJson", JsonConvert.SerializeObject(aliases));
+
             bool grupoOk = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ObterOuCriarGrupoIdAudio");
             if (!grupoOk)
             {
-                CPH.SendYouTubeMessage($"❌ @{evento.UserName}, falha ao resolver identificador do áudio.");
+                EnviarMensagem($"❌ @{evento.UserName}, falha ao resolver identificador do áudio.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             CPH.TryGetArg("grupoIdResultado", out int grupoId);
+
             bool salvo = true;
             foreach (var alias in aliases)
             {
@@ -113,36 +120,49 @@ public class CPHInline
 
                 salvo = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SalvarRegistro");
                 if (!salvo)
+                {
                     break;
+                }
             }
 
             if (!salvo)
             {
-                CPH.SendYouTubeMessage($"❌ @{evento.UserName}, falha ao salvar o áudio. Verifique os logs.");
+                EnviarMensagem($"❌ @{evento.UserName}, falha ao salvar o áudio. Verifique os logs.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             string listaAliases = string.Join(", ", aliases);
-            CPH.SendYouTubeMessage($"✅ Áudio #{grupoId}: '{arquivo}' cadastrado! Comandos: {listaAliases}. Custo: {custo:N0} Moedas. Cooldown: {cooldownSegundos}s.");
+            EnviarMensagem($"✅ Áudio #{grupoId}: '{arquivo}' cadastrado! Comandos: {listaAliases}. Custo: {custo:N0} Moedas. Cooldown: {cooldownSegundos}s.", evento?.BroadcastId, somenteNaTransmissao: true);
             return true;
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO CRÍTICO ao cadastrar áudio: " + ex.Message);
-            CPH.SendYouTubeMessage("❌ Falha técnica ao cadastrar áudio.");
+            LogError("ERRO CRÍTICO ao cadastrar áudio: " + ex.Message);
+            EnviarMensagem("❌ Falha técnica ao cadastrar áudio.", evento?.BroadcastId, somenteNaTransmissao: true);
             return false;
         }
     }
 
     public bool ListarAudios()
     {
+        Evento evento = null;
+
         try
         {
+            Contexto contexto = ObterContexto();
+            if (contexto?.Evento == null)
+            {
+                LogError("ERRO: não foi possível ler o contexto do evento.");
+                return false;
+            }
+
+            evento = contexto.Evento;
+
             bool consultaOk = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ListarAudiosPorGrupo");
 
             if (!consultaOk)
             {
-                CPH.SendYouTubeMessage("❌ Falha ao consultar a lista de áudios.");
+                EnviarMensagem("❌ Falha ao consultar a lista de áudios.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
@@ -151,19 +171,21 @@ public class CPHInline
 
             if (audios == null || audios.Count == 0)
             {
-                CPH.SendYouTubeMessage("ℹ Nenhum áudio cadastrado no momento.");
+                EnviarMensagem("ℹ Nenhum áudio cadastrado no momento.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return true;
             }
 
             foreach (var mensagem in MontarMensagensDeAudios(audios))
-                CPH.SendYouTubeMessage(mensagem, false);
+            {
+                EnviarMensagem(mensagem, evento?.BroadcastId, somenteNaTransmissao: true);
+            }
 
             return true;
         }
         catch (Exception ex)
         {
-            CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO CRÍTICO ao listar áudios: " + ex.Message);
-            CPH.SendYouTubeMessage("❌ Falha técnica ao listar áudios.");
+            LogError("ERRO CRÍTICO ao listar áudios: " + ex.Message);
+            EnviarMensagem("❌ Falha técnica ao listar áudios.", evento?.BroadcastId, somenteNaTransmissao: true);
             return false;
         }
     }
@@ -198,50 +220,65 @@ public class CPHInline
         }
 
         if (!mensagemVazia)
+        {
             mensagens.Add(mensagemAtual.ToString());
+        }
 
         return mensagens;
     }
 
     public bool ReproduzirAudio()
     {
+        Evento evento = null;
+
+        int custo = 0;
+        int grupoId = 0;
+
         string operacaoId = Guid.NewGuid().ToString("D");
         string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-        Evento evento = null;
         string comando = null;
         string arquivo = null;
         string caminhoArquivo = null;
-        int custo = 0;
-        int grupoId = 0;
         string debitoStatus = "nao_iniciado";
         string etapa = "consulta";
+
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null || contexto.Ambiente == null)
             {
-                CPH.LogError(">>> [GERENTE_DE_AUDIO] ERRO: não foi possível ler o contexto do evento.");
+                LogError("ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
+
             evento = contexto.Evento;
             Ambiente ambiente = contexto.Ambiente;
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (partes.Length == 0)
+            {
                 return false;
+            }
 
             comando = partes[0].ToLowerInvariant();
             if (!comando.StartsWith("!"))
+            {
                 return false;
+            }
 
             CPH.SetArgument("buscarAudioComando", comando);
+
             bool buscaOk = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "BuscarAudioPorComando");
             if (!buscaOk)
+            {
                 return false;
+            }
 
             CPH.TryGetArg("audioEncontrado", out bool audioEncontrado);
             if (!audioEncontrado)
+            {
                 return false;
+            }
 
             CPH.TryGetArg("audioArquivo", out arquivo);
             CPH.TryGetArg("audioCusto", out custo);
@@ -258,7 +295,7 @@ public class CPHInline
                     if (segundosDesdeUltimoUso < cooldownSegundos)
                     {
                         int restante = (int)Math.Ceiling(cooldownSegundos - segundosDesdeUltimoUso);
-                        CPH.SendYouTubeMessage($"⏳ @{evento.UserName}, esse áudio está em cooldown. Tente novamente em {restante}s.");
+                        EnviarMensagem($"⏳ @{evento.UserName}, esse áudio está em cooldown. Tente novamente em {restante}s.", evento?.BroadcastId, somenteNaTransmissao: true);
                         return true;
                     }
                 }
@@ -267,8 +304,8 @@ public class CPHInline
             caminhoArquivo = Path.Combine(ambiente.PastaAudios, arquivo);
             if (!File.Exists(caminhoArquivo))
             {
-                CPH.LogError($">>> [GERENTE_DE_AUDIO] ERRO: arquivo '{arquivo}' não encontrado na pasta de áudios.");
-                CPH.SendYouTubeMessage($"❌ @{evento.UserName}, áudio indisponível no momento.");
+                LogError($"ERRO: arquivo '{arquivo}' não encontrado na pasta de áudios.");
+                EnviarMensagem($"❌ @{evento.UserName}, áudio indisponível no momento.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return true;
             }
 
@@ -280,11 +317,12 @@ public class CPHInline
 
                 etapa = "debito";
                 debitoStatus = "incerto";
+
                 bool debitou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "DebitarMoedasUsuario");
                 if (!debitou)
                 {
                     RegistrarFalhaAudio(operacaoId, timestamp, evento, comando, arquivo, caminhoArquivo, grupoId, custo, debitoStatus, etapa, "DebitarMoedasUsuario retornou false; consulte o log do banco para distinguir saldo insuficiente de falha técnica.");
-                    CPH.SendYouTubeMessage($"❌ @{evento.UserName}, não foi possível confirmar o débito de {custo:N0} moedas para o áudio. Confira seu saldo.");
+                    EnviarMensagem($"❌ @{evento.UserName}, não foi possível confirmar o débito de {custo:N0} moedas para o áudio. Confira seu saldo.", evento?.BroadcastId, somenteNaTransmissao: true);
                     return true;
                 }
             }
@@ -294,22 +332,26 @@ public class CPHInline
             CPH.PlaySound(caminhoArquivo, 1, false, "", true);
             etapa = "cooldown";
             CPH.SetArgument("atualizarUltimoUsoGrupoId", grupoId);
+
             if (!CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "AtualizarUltimoUsoAudio"))
+            {
                 RegistrarFalhaAudio(operacaoId, timestamp, evento, comando, arquivo, caminhoArquivo, grupoId, custo, debitoStatus, etapa, "AtualizarUltimoUsoAudio retornou false; a chamada de reprodução já terminou sem exceção.");
+            }
             return true;
         }
         catch (Exception ex)
         {
             RegistrarFalhaAudio(operacaoId, timestamp, evento, comando, arquivo, caminhoArquivo, grupoId, custo, debitoStatus, etapa, ex.ToString());
+
             if (etapa == "reproducao" && debitoStatus == "debitado")
             {
                 try
                 {
-                    CPH.SendYouTubeMessage($"⚠ @{evento.UserName}, não foi possível confirmar a reprodução do áudio. Se ele não tocou, informe o streamer.");
+                    EnviarMensagem($"⚠ @{evento.UserName}, não foi possível confirmar a reprodução do áudio. Se ele não tocou, informe o streamer.", evento?.BroadcastId, somenteNaTransmissao: true);
                 }
                 catch (Exception avisoEx)
                 {
-                    CPH.LogError($">>> [GERENTE_DE_AUDIO] Falha ao enviar aviso da operação {operacaoId}: {avisoEx}");
+                    LogError($"Falha ao enviar aviso da operação {operacaoId}: {avisoEx}");
                 }
             }
             return etapa == "reproducao" || etapa == "cooldown";
@@ -320,14 +362,14 @@ public class CPHInline
     {
         bool podeConferirDevolucao = debitoStatus == "debitado" && etapa == "reproducao";
         string comandoSugerido = podeConferirDevolucao && !string.IsNullOrWhiteSpace(evento?.UserName) && evento.UserName.IndexOfAny(new[] { ' ', '\t', '\r', '\n' }) < 0 ? $"!adicionar @{evento.UserName.TrimStart('@')} {custo}" : null;
-        CPH.LogError(">>> [GERENTE_DE_AUDIO] RECUPERACAO_MANUAL " + JsonConvert.SerializeObject(new { operacaoId, timestamp, userId = evento?.UserId, userName = evento?.UserName, broadcastUserId = evento?.BroadcastUserId, broadcastUserName = evento?.BroadcastUserName, comando, arquivo, caminhoArquivo, grupoId, custo, quantidadeDebitadaConfirmada = debitoStatus == "debitado" ? custo : 0, debitoStatus, etapa, reproducaoRetornouSemExcecao = etapa == "cooldown", erro, comandoSugerido, orientacao = podeConferirDevolucao ? "Antes de devolver, confirmar que o áudio não tocou, conferir usuário/ID e verificar que ainda não houve devolução. O comando é apenas uma sugestão, nunca executado automaticamente." : "Não devolver automaticamente. Débito incerto exige conferência no banco; falha no cooldown não indica falha na reprodução." }));
+        LogError("RECUPERACAO_MANUAL " + JsonConvert.SerializeObject(new { operacaoId, timestamp, userId = evento?.UserId, userName = evento?.UserName, broadcastUserId = evento?.BroadcastUserId, broadcastUserName = evento?.BroadcastUserName, comando, arquivo, caminhoArquivo, grupoId, custo, quantidadeDebitadaConfirmada = debitoStatus == "debitado" ? custo : 0, debitoStatus, etapa, reproducaoRetornouSemExcecao = etapa == "cooldown", erro, comandoSugerido, orientacao = podeConferirDevolucao ? "Antes de devolver, confirmar que o áudio não tocou, conferir usuário/ID e verificar que ainda não houve devolução. O comando é apenas uma sugestão, nunca executado automaticamente." : "Não devolver automaticamente. Débito incerto exige conferência no banco; falha no cooldown não indica falha na reprodução." }));
     }
 
     public class AudioResumo
     {
-        public int GrupoId { get; set; }
-        public string Comando { get; set; }
         public int Custo { get; set; }
+
+        public string Comando { get; set; }
     }
 
     public class Contexto
@@ -336,25 +378,45 @@ public class CPHInline
         public Ambiente Ambiente { get; set; }
     }
 
+    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
+    {
+        // Direciona a resposta quando solicitado e há uma transmissão identificada.
+        if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
+        {
+            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
+        }
+        else
+        {
+            CPH.SendYouTubeMessage(mensagem, true, true);
+        }
+    }
+
+    private void LogError(string mensagem)
+    {
+        CPH.LogError(Prefixo + mensagem);
+    }
+
     private Contexto ObterContexto()
     {
         CPH.TryGetArg("contextoJson", out string contextoJson);
         if (string.IsNullOrEmpty(contextoJson))
+        {
             return null;
+        }
 
         return JsonConvert.DeserializeObject<Contexto>(contextoJson);
     }
 
     public class Evento
     {
+        public bool IsMod { get; set; }
+
         public string UserId { get; set; }
         public string UserName { get; set; }
         public string MessageText { get; set; }
+        public string BroadcastId { get; set; }
         public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
-        public bool IsSub { get; set; }
-        public bool IsSpo { get; set; }
-        public bool IsMod { get; set; }
     }
 
     public class Ambiente

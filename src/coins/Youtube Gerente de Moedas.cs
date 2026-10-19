@@ -2,11 +2,15 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Atualização 261014.0805
+// Atualização 261016.0735
 public class CPHInline
 {
     private const int MoedasPorMensagem = 10;
     private const int CooldownAtividadeMinutos = 10;
+    private const int LimiteTopModerador = 100;
+    private const int LimiteTopUsuario = 10;
+    private const int LimiteMensagem = 200;
+    private const int IntervaloMensagensMilissegundos = 300;
 
     private const string Prefixo = "[GERENTE_MOEDAS] ";
 
@@ -88,7 +92,7 @@ public class CPHInline
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
-            int limiteMaximo = evento.IsMod ? 100 : 10;
+            int limiteMaximo = evento.IsMod ? LimiteTopModerador : LimiteTopUsuario;
 
             if (partes.Length != 2 || !int.TryParse(partes[1], out int quantidade) || quantidade <= 0)
             {
@@ -133,8 +137,6 @@ public class CPHInline
 
     private void EnviarTopMoedas(List<TopMoedaItem> itens, string broadcastId)
     {
-        const int limiteCaracteres = 200;
-
         const string prefixo = "Top Moedas do Canal: ";
 
         var mensagens = new List<string>();
@@ -153,7 +155,7 @@ public class CPHInline
 
             string trecho = $"{medalha}(#{item.Rank}) - @{item.NomeExibido}: {item.Moedas:N0} |";
             string candidata = mensagemAtual == prefixo ? prefixo + trecho : mensagemAtual + " " + trecho;
-            if (candidata.Length > limiteCaracteres)
+            if (candidata.Length > LimiteMensagem)
             {
                 mensagens.Add(mensagemAtual);
                 mensagemAtual = prefixo + trecho;
@@ -172,7 +174,7 @@ public class CPHInline
         foreach (var mensagem in mensagens)
         {
             EnviarMensagem(mensagem, broadcastId, somenteNaTransmissao: true);
-            CPH.Wait(300);
+            CPH.Wait(IntervaloMensagensMilissegundos);
         }
     }
 
@@ -519,11 +521,11 @@ public class CPHInline
         // Direciona a resposta quando solicitado e há uma transmissão identificada.
         if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
         {
-            CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
         }
         else
         {
-            CPH.SendYouTubeMessage(mensagem);
+            CPH.SendYouTubeMessage(mensagem, true, true);
         }
     }
 
@@ -534,7 +536,6 @@ public class CPHInline
 
     private Contexto ObterContexto()
     {
-        // Obtém o contexto criado pelo Gerente de Chat
         CPH.TryGetArg("contextoJson", out string contextoJson);
         if (string.IsNullOrEmpty(contextoJson))
         {

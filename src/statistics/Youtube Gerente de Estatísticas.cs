@@ -1,10 +1,10 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 261011.2020
+// Atualização 261016.0910
 public class CPHInline
 {
-    private const string Prefixo = "[GERENTE_DE_ESTATISTICAS] ";
+    private const string Prefixo = "[GERENTE_ESTATISTICAS] ";
 
     public bool Execute()
     {
@@ -29,9 +29,7 @@ public class CPHInline
                 throw new ArgumentException("Canal ou contagem do Studio inválidos.");
             }
 
-            // ------------------------------------------------------------------
             // Youtube Gerente de OBS: atualiza o contador de inscritos.
-            // ------------------------------------------------------------------
             CPH.SetArgument("inscritosJson", JsonConvert.SerializeObject(contagem));
 
             if (!CPH.ExecuteMethod("Youtube Gerente de OBS", "AtualizarContadorInscritos"))
@@ -75,7 +73,6 @@ public class CPHInline
             string mensagem = evento.MessageText ?? "";
             string userIdConsulta = null;
             string userNameConsulta;
-
             string[] partes = mensagem.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
             if (partes.Length > 1)
@@ -88,9 +85,7 @@ public class CPHInline
                 userNameConsulta = evento.UserName;
             }
 
-            // ------------------------------------------------------------------
             // Youtube Gerente de Banco de Dados: consulta os dias de presença.
-            // ------------------------------------------------------------------
             CPH.SetArgument("presencaUserId", userIdConsulta ?? "");
             CPH.SetArgument("presencaUserName", userNameConsulta ?? "");
 
@@ -114,7 +109,7 @@ public class CPHInline
                 ? $"@{nomeExibicao} ainda não te vi por aqui{sufixoMensagem}! 👀"
                 : $"@{nomeExibicao} já participou de {dias} live{(dias > 1 ? "s" : "")}{sufixoMensagem}! 🎥";
 
-            CPH.SendYouTubeMessage(resposta);
+            EnviarMensagem(resposta, evento?.BroadcastId, somenteNaTransmissao: true);
 
             return true;
         }
@@ -122,6 +117,19 @@ public class CPHInline
         {
             LogError($"ERRO CRÍTICO: {ex.Message}");
             return false;
+        }
+    }
+
+    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
+    {
+        // Direciona a resposta quando solicitado e há uma transmissão identificada.
+        if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
+        {
+            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
+        }
+        else
+        {
+            CPH.SendYouTubeMessage(mensagem, true, true);
         }
     }
 
@@ -158,5 +166,6 @@ public class CPHInline
         public string UserId { get; set; }
         public string UserName { get; set; }
         public string MessageText { get; set; }
+        public string BroadcastId { get; set; }
     }
 }

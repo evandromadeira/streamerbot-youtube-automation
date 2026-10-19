@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-// Atualização 261014.1635
+// Atualização 261015.1120
 // Sem triggers. Chamado por Youtube Gerente de Doações via ExecuteMethod.
 public class CPHInline
 {
@@ -54,7 +54,6 @@ public class CPHInline
             doacao.Multiplicador = new Random().Next(MultiplicadorMinimo, MultiplicadorMaximo + 1);
 
             double calculo = Math.Round(doacao.Multiplicador * (double)doacao.ValorBRL * MoedasPorReal);
-
             if (calculo < 0 || calculo > int.MaxValue)
             {
                 throw new ArgumentException("Quantidade calculada fora do intervalo de moedas suportado: " + calculo);
@@ -230,11 +229,11 @@ public class CPHInline
         // Direciona a resposta quando solicitado e há uma transmissão identificada.
         if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
         {
-            CPH.SendYouTubeMessage(mensagem, false, true, broadcastId);
+            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
         }
         else
         {
-            CPH.SendYouTubeMessage(mensagem);
+            CPH.SendYouTubeMessage(mensagem, true, true);
         }
     }
 

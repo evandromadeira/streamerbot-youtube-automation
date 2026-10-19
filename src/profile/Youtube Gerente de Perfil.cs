@@ -1,22 +1,22 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 260924.1600
+// Atualização 261016.0855
 public class CPHInline
 {
-    // ------------------------------------------------------------------
-    // Processa os comandos relacionados ao Perfil do Usuário
-    // ------------------------------------------------------------------
+    private const string Prefixo = "[GERENTE_PERFIL] ";
+
     public bool ProcessarComando()
     {
+        // Processa os comandos relacionados ao Perfil do Usuário
         Evento evento = null;
 
         try
         {
-            var contexto = ObterContexto();
+            Contexto contexto = ObterContexto();
             if (contexto?.Evento == null)
             {
-                CPH.LogError(">>> [GERENTE_DE_PERFIL] ERRO: não foi possível ler o contexto do evento.");
+                LogError("ERRO: não foi possível ler o contexto do evento.");
                 return false;
             }
 
@@ -32,13 +32,13 @@ public class CPHInline
 
             if (!evento.IsMod)
             {
-                CPH.SendYouTubeMessage($"@{evento.UserName} - apenas moderadores podem alterar perfis.");
+                EnviarMensagem($"@{evento.UserName} - apenas moderadores podem alterar perfis.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return true;
             }
 
             if (partes.Length < 4)
             {
-                CPH.SendYouTubeMessage($"@{evento.UserName} - uso correto: !perfil @usuario [campo] [valor]. Use !perfil ajuda para ver as opções.");
+                EnviarMensagem($"@{evento.UserName} - uso correto: !perfil @usuario [campo] [valor]. Use !perfil ajuda para ver as opções.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return true;
             }
 
@@ -47,11 +47,13 @@ public class CPHInline
             string valor = partes[3].Trim();
 
             if (usuario.StartsWith("@"))
+            {
                 usuario = usuario.Substring(1);
+            }
 
             if (string.IsNullOrEmpty(usuario))
             {
-                CPH.SendYouTubeMessage($"@{evento.UserName} - usuário inválido.");
+                EnviarMensagem($"@{evento.UserName} - usuário inválido.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return true;
             }
 
@@ -63,34 +65,33 @@ public class CPHInline
                 case "categoria":
                     return AtualizarSexo(evento, usuario, valor);
                 default:
-                    CPH.SendYouTubeMessage($"@{evento.UserName} - campo de perfil '{campo}' não reconhecido. Use !perfil ajuda.");
+                    EnviarMensagem($"@{evento.UserName} - campo de perfil '{campo}' não reconhecido. Use !perfil ajuda.", evento?.BroadcastId, somenteNaTransmissao: true);
                     return true;
             }
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [GERENTE_DE_PERFIL] ERRO CRÍTICO ao processar comando: {ex.Message}");
+            LogError($"ERRO CRÍTICO ao processar comando: {ex.Message}");
+
             if (evento != null)
+            {
                 InformarFalhaAtualizacao(evento);
+            }
             return false;
         }
     }
 
-    // ------------------------------------------------------------------
-    // Exibe os comandos e valores disponíveis para o Perfil do Usuário
-    // ------------------------------------------------------------------
     private void EnviarAjuda(Evento evento)
     {
-        CPH.SendYouTubeMessage($"@{evento.UserName} - Perfil: permite definir nível de membro e informações do usuário. Apenas moderadores podem alterar esses dados.");
-        CPH.SendYouTubeMessage("Uso: !perfil @usuario membro [nível] | Tulipa Bronze, Tulipa Prata, Tulipa Ouro ou Tulipa Platina. Exemplo: !perfil @usuario membro Tulipa Ouro");
-        CPH.SendYouTubeMessage("Uso: !perfil @usuario categoria [valor] | Masculino, Feminino ou Outro. Exemplo: !perfil @usuario categoria Feminino");
+        // Exibe os comandos e valores disponíveis para o Perfil do Usuário
+        EnviarMensagem($"@{evento.UserName} - Perfil: permite definir nível de membro e informações do usuário. Apenas moderadores podem alterar esses dados.", evento?.BroadcastId, somenteNaTransmissao: true);
+        EnviarMensagem("Uso: !perfil @usuario membro [nível] | Tulipa Bronze, Tulipa Prata, Tulipa Ouro ou Tulipa Platina.", evento?.BroadcastId, somenteNaTransmissao: true);
+        EnviarMensagem("Uso: !perfil @usuario categoria [valor] | Masculino, Feminino ou Outro.", evento?.BroadcastId, somenteNaTransmissao: true);
     }
 
-    // ------------------------------------------------------------------
-    // Atualiza o nível de membro de um usuário
-    // ------------------------------------------------------------------
     private bool AtualizarNivelMembro(Evento evento, string usuario, string valor)
     {
+        // Atualiza o nível de membro de um usuário
         string nivel;
 
         switch (valor.ToLowerInvariant())
@@ -108,18 +109,16 @@ public class CPHInline
                 nivel = "TULIPA_PLATINA";
                 break;
             default:
-                CPH.SendYouTubeMessage($"@{evento.UserName} - nível inválido. Use Tulipa Bronze, Tulipa Prata, Tulipa Ouro ou Tulipa Platina.");
+                EnviarMensagem($"@{evento.UserName} - nível inválido. Use Tulipa Bronze, Tulipa Prata, Tulipa Ouro ou Tulipa Platina.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return true;
         }
 
         return AtualizarPerfil(evento, usuario, "nivelMembro", nivel);
     }
 
-    // ------------------------------------------------------------------
-    // Atualiza o sexo de um usuário
-    // ------------------------------------------------------------------
     private bool AtualizarSexo(Evento evento, string usuario, string valor)
     {
+        // Atualiza o sexo de um usuário
         string sexo;
 
         switch (valor.ToLowerInvariant())
@@ -134,18 +133,16 @@ public class CPHInline
                 sexo = "OUTRO";
                 break;
             default:
-                CPH.SendYouTubeMessage($"@{evento.UserName} - valor inválido. Use Masculino, Feminino ou Outro.");
+                EnviarMensagem($"@{evento.UserName} - valor inválido. Use Masculino, Feminino ou Outro.", evento?.BroadcastId, somenteNaTransmissao: true);
                 return true;
         }
 
         return AtualizarPerfil(evento, usuario, "sexo", sexo);
     }
 
-    // ------------------------------------------------------------------
-    // Envia uma atualização de perfil para o Gerente de Banco de Dados
-    // ------------------------------------------------------------------
     private bool AtualizarPerfil(Evento evento, string usuario, string campo, string valor)
     {
+        // Envia uma atualização de perfil para o Gerente de Banco de Dados
         CPH.SetArgument("perfilUserName", usuario);
         CPH.SetArgument("perfilCampo", campo);
         CPH.SetArgument("perfilValor", valor);
@@ -155,7 +152,7 @@ public class CPHInline
 
         if (!executou)
         {
-            CPH.LogError(">>> [GERENTE_DE_PERFIL] ERRO: falha ao atualizar perfil no banco de dados.");
+            LogError("ERRO: falha ao atualizar perfil no banco de dados.");
             InformarFalhaAtualizacao(evento);
             return false;
         }
@@ -166,21 +163,21 @@ public class CPHInline
         {
             case "Sucesso":
                 string campoExibicao = campo == "nivelMembro" ? "nível de membro" : "informação";
-                CPH.SendYouTubeMessage($"Perfil de @{usuario} atualizado: {campoExibicao} = {valor}.");
+                EnviarMensagem($"Perfil de @{usuario} atualizado: {campoExibicao} = {valor}.", evento?.BroadcastId, somenteNaTransmissao: true);
                 break;
             case "UsuarioNaoEncontrado":
-                CPH.SendYouTubeMessage($"@{evento.UserName} - usuário @{usuario} não encontrado.");
+                EnviarMensagem($"@{evento.UserName} - usuário @{usuario} não encontrado.", evento?.BroadcastId, somenteNaTransmissao: true);
                 break;
             case "CampoInvalido":
-                CPH.LogError($">>> [GERENTE_DE_PERFIL] ERRO: campo inválido enviado ao banco: '{campo}'.");
+                LogError($"ERRO: campo inválido enviado ao banco: '{campo}'.");
                 InformarFalhaAtualizacao(evento);
                 return false;
             case "ParametrosInvalidos":
-                CPH.LogError(">>> [GERENTE_DE_PERFIL] ERRO: parâmetros inválidos enviados ao banco.");
+                LogError("ERRO: parâmetros inválidos enviados ao banco.");
                 InformarFalhaAtualizacao(evento);
                 return false;
             default:
-                CPH.LogError($">>> [GERENTE_DE_PERFIL] ERRO: resultado inesperado do banco: '{resultado}'.");
+                LogError($"ERRO: resultado inesperado do banco: '{resultado}'.");
                 InformarFalhaAtualizacao(evento);
                 return false;
         }
@@ -188,23 +185,37 @@ public class CPHInline
         return true;
     }
 
-    // ------------------------------------------------------------------
-    // Avisa o solicitante de que a alteração do perfil não pôde ser concluída
-    // ------------------------------------------------------------------
     private void InformarFalhaAtualizacao(Evento evento)
     {
-        CPH.SendYouTubeMessage($"@{evento.UserName} - não foi possível atualizar o perfil. Tente novamente.");
+        // Avisa o solicitante de que a alteração do perfil não pôde ser concluída
+        EnviarMensagem($"@{evento.UserName} - não foi possível atualizar o perfil. Tente novamente.", evento?.BroadcastId, somenteNaTransmissao: true);
     }
 
-    // ------------------------------------------------------------------
-    // Obtém o contexto criado pelo Gerente de Chat
-    // ------------------------------------------------------------------
+    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
+    {
+        // Direciona a resposta quando solicitado e há uma transmissão identificada.
+        if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
+        {
+            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
+        }
+        else
+        {
+            CPH.SendYouTubeMessage(mensagem, true, true);
+        }
+    }
+
+    private void LogError(string mensagem)
+    {
+        CPH.LogError(Prefixo + mensagem);
+    }
+
     private Contexto ObterContexto()
     {
         CPH.TryGetArg("contextoJson", out string contextoJson);
-
         if (string.IsNullOrEmpty(contextoJson))
+        {
             return null;
+        }
 
         return JsonConvert.DeserializeObject<Contexto>(contextoJson);
     }
@@ -216,17 +227,11 @@ public class CPHInline
 
     public class Evento
     {
-        public bool IsSub { get; set; }
-        public bool IsSpo { get; set; }
         public bool IsMod { get; set; }
 
-        public string UserId { get; set; }
         public string UserName { get; set; }
-        public string UserPreviousActive { get; set; }
-        public string MessageId { get; set; }
+
         public string MessageText { get; set; }
-        public string PublishedAt { get; set; }
-        public string BroadcastUserId { get; set; }
-        public string BroadcastUserName { get; set; }
+        public string BroadcastId { get; set; }
     }
 }
