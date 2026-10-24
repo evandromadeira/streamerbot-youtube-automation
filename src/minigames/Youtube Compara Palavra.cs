@@ -1,7 +1,10 @@
 using System;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
-// Atualização 261015.1120
+// Atualização 261022.0630
+// Padrões aplicados: 5
+// Revisão concluída: 1
 public class CPHInline
 {
     private const int PremioBase = 1000;
@@ -16,7 +19,7 @@ public class CPHInline
     {
         try
         {
-            Contexto contexto = ObterContexto();
+            Contexto contexto = LerContexto();
             if (contexto?.Evento == null)
             {
                 LogError("ERRO: não foi possível ler o contexto do evento.");
@@ -45,10 +48,8 @@ public class CPHInline
 
                     // Evita que o mesmo espectador ganhe mais de uma vez na mesma rodada
                     int x = CPH.GetGlobalVar<int>("moedasSurpresaGanhadoresCount", false);
-
                     string listaGanhadores = CPH.GetGlobalVar<string>("moedasSurpresaListaGanhadores", false) ?? "";
                     string buscaId = $"|{(string.IsNullOrEmpty(evento.UserId) ? evento.UserName : evento.UserId)}|";
-
                     if (x >= LimiteGanhadores)
                     {
                         return true;
@@ -61,13 +62,13 @@ public class CPHInline
 
                     // Calcula o prêmio base com base na posição do ganhador (x)
                     int moedasBase = (int)(PremioBase / Math.Pow(2, x));
-
                     // Incrementa multiplicador com base nas informações do usuário
                     int multiplicador = 1;
                     if (evento.IsSub)
                     {
                         multiplicador++;
                     }
+
                     if (evento.IsSpo)
                     {
                         multiplicador++;
@@ -75,36 +76,40 @@ public class CPHInline
 
                     int moedasFinais = moedasBase * multiplicador;
 
-                    CPH.SetArgument("origem", "moedas_surpresa");
-                    CPH.SetArgument("targetUserId", evento.UserId ?? evento.UserName);
-                    CPH.SetArgument("targetUserName", evento.UserName);
-                    CPH.SetArgument("coinsToAdd", moedasFinais);
-                    CPH.SetArgument("broadcastUserId", evento.BroadcastUserId);
-                    CPH.SetArgument("broadcastUserName", evento.BroadcastUserName);
-
                     string operacaoId = Guid.NewGuid().ToString("D");
-
-                    CPH.SetArgument("adicionarCreditoStatus", "incerto");
-                    CPH.SetArgument("adicionarErro", "");
-                    CPH.SetArgument("adicionarDestinatarioId", "");
+                    // Youtube Gerente de Moedas: credita o prêmio reservado nesta rodada.
+                    ComparaPalavra comparaPalavra = new ComparaPalavra
+                    {
+                        OperacaoId = operacaoId,
+                        UsuarioId = evento.UserId ?? evento.UserName,
+                        Usuario = evento.UserName,
+                        Quantidade = moedasFinais,
+                        BroadcastUserId = evento.BroadcastUserId,
+                        BroadcastUserName = evento.BroadcastUserName
+                    };
+                    contexto.ComparaPalavra = comparaPalavra;
+                    contexto.Moedas = null;
+                    CPH.SetArgument("contextoJson", JsonConvert.SerializeObject(contexto));
                     // Reserva antes da chamada. Uma exceção não pode permitir crédito duplicado.
                     CPH.SetGlobalVar("moedasSurpresaListaGanhadores", listaGanhadores + buscaId, false);
 
                     bool executou = false;
 
                     string erro = "";
-
                     try
                     {
-                        executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
+                        executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasCredito");
                     }
                     catch (Exception ex)
                     {
                         erro = ex.Message;
                     }
-                    CPH.TryGetArg("adicionarCreditoStatus", out string creditoStatus);
-                    CPH.TryGetArg("adicionarErro", out string erroCredito);
-                    CPH.TryGetArg("adicionarDestinatarioId", out string destinatarioId);
+
+                    Moedas moedas = LerResultadoCredito(operacaoId);
+
+                    string creditoStatus = moedas.Status;
+                    string erroCredito = moedas.Erro;
+                    string destinatarioId = moedas.DestinatarioId;
 
                     bool confirmado = creditoStatus == "creditado";
                     bool falhou = creditoStatus == "falhou";
@@ -134,11 +139,13 @@ public class CPHInline
                     {
                         LogError("RECUPERACAO_MANUAL " + JsonConvert.SerializeObject(new { operacaoId, timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), origem = "moedas_surpresa", pastaStreamerBot = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true), evento.UserId, evento.UserName, evento.BroadcastUserId, evento.BroadcastUserName, destinatarioId, palavraSurpresa, posicao = x + 1, quantidade = moedasFinais, creditoStatus, erro, erroCredito, orientacao = falhou ? "Crédito não realizado; nova tentativa permitida nesta rodada. Confira tentativas posteriores antes de qualquer ajuste manual." : "Posição reservada. Confira o banco antes de qualquer ajuste; não repetir crédito confirmado ou incerto." }));
                     }
+
                     if (!confirmado)
                     {
                         Avisar(falhou ? $"❌ @{evento.UserName}, não foi possível creditar o prêmio. Tente a palavra novamente enquanto a rodada estiver aberta." : $"⚠ @{evento.UserName}, crédito do prêmio incerto. Posição reservada; moderação, confira o log e o banco antes de adicionar moedas.", evento.BroadcastId, somenteNaTransmissao: true);
                         return false;
                     }
+
                     // Envia a mensagem comemorativa no chat destacando a posição e o bônus
                     string posicaoTexto = x switch
                     {
@@ -153,7 +160,6 @@ public class CPHInline
                         _ => ""
                     };
                     string mensagemSucesso = $"{posicaoTexto}: @{evento.UserName} digitou rápido e ganhou {moedasFinais:N0} Moedas!{detalheCargo}";
-
                     Avisar(mensagemSucesso, evento.BroadcastId, somenteNaTransmissao: true);
                 }
             }
@@ -202,7 +208,31 @@ public class CPHInline
         CPH.LogError(Prefixo + mensagem);
     }
 
-    private Contexto ObterContexto()
+    private Moedas LerResultadoCredito(string operacaoId)
+    {
+        // Só aceita a resposta concluída do pedido atual; ausência de confirmação não permite repetir o crédito.
+        try
+        {
+            Moedas moedas = LerContexto()?.Moedas;
+            if (moedas != null && moedas.OperacaoId == operacaoId && moedas.Concluido)
+            {
+                moedas.Status = moedas.Status == "creditado" || moedas.Status == "falhou" ? moedas.Status : "incerto";
+                return moedas;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogError("Erro ao ler o resultado do crédito: " + ex.Message);
+        }
+
+        return new Moedas
+        {
+            OperacaoId = operacaoId,
+            Erro = "Resposta de crédito ausente, incompleta ou de outra operação."
+        };
+    }
+
+    private Contexto LerContexto()
     {
         CPH.TryGetArg("contextoJson", out string contextoJson);
         if (string.IsNullOrEmpty(contextoJson))
@@ -215,7 +245,41 @@ public class CPHInline
 
     public class Contexto
     {
+        public ComparaPalavra ComparaPalavra { get; set; }
+
+        public Moedas Moedas { get; set; }
+
         public Evento Evento { get; set; }
+
+        [JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, JToken> DadosComplementares { get; set; }
+    }
+
+    public class ComparaPalavra
+    {
+        public int Quantidade { get; set; }
+
+        public string OperacaoId { get; set; }
+        public string UsuarioId { get; set; }
+        public string Usuario { get; set; }
+        public string BroadcastUserId { get; set; }
+        public string BroadcastUserName { get; set; }
+
+        [JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, JToken> DadosComplementares { get; set; }
+    }
+
+    public class Moedas
+    {
+        public bool Concluido { get; set; }
+
+        public string OperacaoId { get; set; }
+        public string Status { get; set; } = "incerto";
+        public string Erro { get; set; } = "";
+        public string DestinatarioId { get; set; } = "";
+
+        [JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, JToken> DadosComplementares { get; set; }
     }
 
     public class Evento
@@ -229,5 +293,8 @@ public class CPHInline
         public string BroadcastId { get; set; }
         public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
+
+        [JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, JToken> DadosComplementares { get; set; }
     }
 }

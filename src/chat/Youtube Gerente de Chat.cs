@@ -2,7 +2,9 @@ using System;
 using System.IO;
 using Newtonsoft.Json;
 
-// Atualização 261014.1100
+// Atualização 261022.0630
+// Padrões aplicados: 5
+// Revisão concluída: 1
 public class CPHInline
 {
     private const string Prefixo = "[GERENTE_DE_CHAT] ";
@@ -11,42 +13,30 @@ public class CPHInline
     {
         try
         {
-            Evento evento = LerEvento();
-            Ambiente ambiente = new Ambiente(CPH);
+            Chat chat = LerChat();
 
+            Ambiente ambiente = new Ambiente(CPH);
             Contexto contexto = new Contexto
             {
-                Evento = evento,
+                Chat = chat,
                 Ambiente = ambiente
             };
-
             var broadcaster = CPH.YouTubeGetBroadcaster();
 
-            evento.BroadcastUserId = broadcaster?.UserId ?? "";
-            evento.BroadcastUserName = string.IsNullOrEmpty(broadcaster?.UserName) ? "YOUTUBE" : broadcaster?.UserName;
+            chat.BroadcastUserId = broadcaster?.UserId ?? "";
+            chat.BroadcastUserName = string.IsNullOrEmpty(broadcaster?.UserName) ? "YOUTUBE" : broadcaster?.UserName;
 
             // Serializa para JSON uma única vez
             string contextoJson = JsonConvert.SerializeObject(contexto);
             CPH.SetArgument("contextoJson", contextoJson);
 
             // Youtube Gerente de Banco de Dados: registra a mensagem e o usuário.
-            CPH.SetArgument("chatLogIsSubscribed", evento.IsSub);
-            CPH.SetArgument("chatLogIsSponsor", evento.IsSpo);
-            CPH.SetArgument("chatLogIsModerator", evento.IsMod);
-            CPH.SetArgument("chatLogUserId", evento.UserId);
-            CPH.SetArgument("chatLogUserName", evento.UserName);
-            CPH.SetArgument("chatLogMessageId", evento.MessageId);
-            CPH.SetArgument("chatLogMessage", evento.MessageText);
-            CPH.SetArgument("chatLogPublishedAt", evento.PublishedAt);
-            CPH.SetArgument("chatLogUserPreviousActive", evento.UserPreviousActive);
-            CPH.SetArgument("chatLogBroadcastUserId", evento.BroadcastUserId);
-            CPH.SetArgument("chatLogBroadcastUserName", evento.BroadcastUserName);
+            PrepararArgumentosChatLog(chat);
 
             bool salvou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SalvarChatLog");
             if (!salvou)
             {
                 LogError("ERRO: falha ao salvar mensagem no banco de dados.");
-                return false;
             }
 
             // Youtube Gerente de Moedas: recompensa a atividade no chat.
@@ -57,9 +47,9 @@ public class CPHInline
             }
 
             // Comandos de Chat
-            if (!string.IsNullOrEmpty(evento.MessageText) && evento.MessageText.StartsWith("!"))
+            if (!string.IsNullOrEmpty(chat.MessageText) && chat.MessageText.StartsWith("!"))
             {
-                EncaminharComando(evento.MessageText, evento.UserName);
+                EncaminharComando(chat.MessageText, chat.UserName);
             }
 
             return true;
@@ -99,7 +89,6 @@ public class CPHInline
                 CPH.ExecuteMethod("Youtube Gerente de Moedas", "SaldoMoedasUsuario");
                 break;
             case "!adicionar":
-                CPH.SetArgument("origem", "chat_adicionar");
                 CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
                 break;
             case "!transferir":
@@ -154,32 +143,21 @@ public class CPHInline
         }
     }
 
-    private Evento LerEvento()
+    private void PrepararArgumentosChatLog(Chat chat)
     {
-        Evento evento = new Evento();
-
-        CPH.TryGetArg("isSubscribed", out bool isSub);
-        CPH.TryGetArg("userIsSponsor", out bool isSpo);
-        CPH.TryGetArg("isModerator", out bool isMod);
-        CPH.TryGetArg("userId", out string userId);
-        CPH.TryGetArg("userName", out string userName);
-        CPH.TryGetArg("messageId", out string messageId);
-        CPH.TryGetArg("message", out string messageText);
-        CPH.TryGetArg("userPreviousActive", out DateTime userPreviousActive);
-        CPH.TryGetArg("broadcast.id", out string broadcastId);
-
-        evento.IsSub = isSub;
-        evento.IsSpo = isSpo;
-        evento.IsMod = isMod;
-        evento.UserId = userId;
-        evento.UserName = userName;
-        evento.MessageId = messageId;
-        evento.MessageText = messageText;
-        evento.PublishedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-        evento.UserPreviousActive = userPreviousActive != DateTime.MinValue ? userPreviousActive.ToString("yyyy-MM-dd HH:mm:ss") : "Primeira Mensagem";
-        evento.BroadcastId = broadcastId;
-
-        return evento;
+        // Prepara os argumentos do registro sem alterar o contexto enviado aos outros gerentes.
+        CPH.SetArgument("chatLogIsSubscribed", chat.IsSub);
+        CPH.SetArgument("chatLogIsSponsor", chat.IsSpo);
+        CPH.SetArgument("chatLogIsModerator", chat.IsMod);
+        CPH.SetArgument("chatLogUserId", chat.UserId);
+        CPH.SetArgument("chatLogUserName", chat.UserName);
+        CPH.SetArgument("chatLogMessageId", chat.MessageId);
+        CPH.SetArgument("chatLogMessage", chat.MessageText);
+        CPH.SetArgument("chatLogPublishedAt", chat.PublishedAt);
+        CPH.SetArgument("chatLogUserPreviousActive", chat.UserPreviousActive);
+        CPH.SetArgument("chatLogBroadcastUserId", chat.BroadcastUserId);
+        CPH.SetArgument("chatLogBroadcastUserName", chat.BroadcastUserName);
+        CPH.SetArgument("chatLogBroadcastId", chat.BroadcastId);
     }
 
     private void LogError(string mensagem)
@@ -192,13 +170,43 @@ public class CPHInline
         CPH.LogInfo(Prefixo + mensagem);
     }
 
+    private Chat LerChat()
+    {
+        Chat chat = new Chat();
+
+        CPH.TryGetArg("isSubscribed", out bool isSub);
+        CPH.TryGetArg("userIsSponsor", out bool isSpo);
+        CPH.TryGetArg("isModerator", out bool isMod);
+        CPH.TryGetArg("userId", out string userId);
+        CPH.TryGetArg("userName", out string userName);
+        CPH.TryGetArg("messageId", out string messageId);
+        CPH.TryGetArg("message", out string messageText);
+        CPH.TryGetArg("userPreviousActive", out DateTime userPreviousActive);
+        CPH.TryGetArg("broadcast.id", out string broadcastId);
+
+        chat.IsSub = isSub;
+        chat.IsSpo = isSpo;
+        chat.IsMod = isMod;
+        chat.UserId = userId;
+        chat.UserName = userName;
+        chat.MessageId = messageId;
+        chat.MessageText = messageText;
+        chat.PublishedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        chat.UserPreviousActive = userPreviousActive != DateTime.MinValue ? userPreviousActive.ToString("yyyy-MM-dd HH:mm:ss") : "Primeira Mensagem";
+        chat.BroadcastId = broadcastId;
+
+        return chat;
+    }
+
     public class Contexto
     {
-        public Evento Evento { get; set; }
+        [JsonProperty("Evento")]
+        public Chat Chat { get; set; }
+
         public Ambiente Ambiente { get; set; }
     }
 
-    public class Evento
+    public class Chat
     {
         public bool IsSub { get; set; }
         public bool IsSpo { get; set; }

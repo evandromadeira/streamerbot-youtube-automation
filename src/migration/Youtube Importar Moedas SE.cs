@@ -5,7 +5,9 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-// Atualização 261015.1120
+// Atualização 261022.0630
+// Padrões aplicados: 5
+// Revisão concluída: 1
 public class CPHInline
 {
     private const int LimiteMensagem = 200;
@@ -24,9 +26,10 @@ public class CPHInline
 
         Evento evento = null;
 
+        Moedas moedas = null;
         try
         {
-            Contexto contexto = ObterContexto();
+            Contexto contexto = LerContexto();
             if (contexto?.Evento == null || contexto.Ambiente == null)
             {
                 LogError("ERRO: não foi possível ler o contexto do evento.");
@@ -34,7 +37,6 @@ public class CPHInline
             }
 
             evento = contexto.Evento;
-
             Ambiente ambiente = contexto.Ambiente;
 
             string[] partes = (evento.MessageText ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -45,9 +47,7 @@ public class CPHInline
             }
 
             twitchUser = partes[1].Trim();
-
             string qtdInput = partes[2].Trim().ToLowerInvariant();
-
             if (string.IsNullOrEmpty(ambiente.PastaSE))
             {
                 LogError("ERRO: Variável global 'caminhoPastaStreamElements' não definida!");
@@ -76,7 +76,6 @@ public class CPHInline
             }
 
             ApiStreamElements api = new ApiStreamElements(jwtToken, idCanal);
-
             (int saldoSE, _) = api.ConsultarSaldoERankUsuario(twitchUser);
             if (saldoSE <= 0)
             {
@@ -95,11 +94,13 @@ public class CPHInline
                     EnviarMensagem($"⚠ A quantidade informada precisa ser maior que zero!", evento.BroadcastId, somenteNaTransmissao: true);
                     return false;
                 }
+
                 if (qtdInformada > saldoSE)
                 {
                     EnviarMensagem($"❌ Saldo insuficiente na Twitch! '{twitchUser}' possui apenas {saldoSE:N0} {moedaSE}.", evento.BroadcastId, somenteNaTransmissao: true);
                     return false;
                 }
+
                 moedasAImportar = qtdInformada;
             }
             else
@@ -110,68 +111,61 @@ public class CPHInline
 
             // Sem resposta conclusiva, o débito pode ter sido aplicado no SE.
             debitoStatus = "incerto";
-
             bool debitou = api.DebitarPontosUsuario(twitchUser, moedasAImportar);
-
             debitoStatus = api.DebitoStatus;
             if (!debitou)
             {
                 throw new InvalidOperationException(api.UltimoErro);
             }
-            // Youtube Gerente de Moedas: credita as moedas após o débito confirmado no SE.
-            CPH.SetArgument("origem", "importacao");
-            CPH.SetArgument("targetUserId", evento.UserId);
-            CPH.SetArgument("targetUserName", evento.UserName);
-            CPH.SetArgument("coinsToAdd", moedasAImportar);
-            CPH.SetArgument("broadcastUserId", evento.BroadcastUserId);
-            CPH.SetArgument("broadcastUserName", evento.BroadcastUserName);
 
-            CPH.SetArgument("adicionarCreditoStatus", "incerto");
-            CPH.SetArgument("adicionarErro", "");
-            CPH.SetArgument("adicionarDestinatarioId", "");
+            // Youtube Gerente de Moedas: credita as moedas após o débito confirmado no SE.
+            ImportarMoedas importarMoedas = new ImportarMoedas
+            {
+                OperacaoId = operacaoId,
+                UsuarioId = evento.UserId,
+                Usuario = evento.UserName,
+                Quantidade = moedasAImportar,
+                BroadcastUserId = evento.BroadcastUserId,
+                BroadcastUserName = evento.BroadcastUserName
+            };
+            contexto.ImportarMoedas = importarMoedas;
+            contexto.Moedas = null;
+            CPH.SetArgument("contextoJson", JsonConvert.SerializeObject(contexto));
 
             creditoStatus = "incerto";
-
             bool executou;
-
             try
             {
-                executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasUsuario");
+                executou = CPH.ExecuteMethod("Youtube Gerente de Moedas", "AdicionarMoedasCredito");
             }
             finally
             {
-                CPH.TryGetArg("adicionarCreditoStatus", out string status);
-                creditoStatus = status == "creditado" || status == "falhou" ? status : "incerto";
+                moedas = LerResultadoCredito(operacaoId);
+                creditoStatus = moedas.Status;
             }
 
-            CPH.TryGetArg("adicionarErro", out string erroCredito);
+            string erroCredito = moedas.Erro;
             if (creditoStatus != "creditado" || !executou || !string.IsNullOrEmpty(erroCredito))
             {
                 throw new InvalidOperationException(string.IsNullOrEmpty(erroCredito) ? "O crédito não terminou normalmente." : erroCredito);
             }
+
             // Youtube Gerente de Banco de Dados: consulta o saldo sem desfazer o crédito confirmado.
-            CPH.SetArgument("consultarChave", evento.UserId);
-            CPH.SetArgument("consultarPorId", true);
-            CPH.SetArgument("consultarEncontrado", false);
+            PrepararArgumentosSaldo(evento.UserId);
 
             bool consultou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SaldoMoedasUsuario");
-
             CPH.TryGetArg("consultarEncontrado", out bool encontrado);
             CPH.TryGetArg("consultarMoedas", out int saldoAtual);
             CPH.TryGetArg("consultarRank", out int rankUsuario);
-
             string detalheSaldo = consultou && encontrado ? $" Saldo: {saldoAtual:N0} (#{rankUsuario})." : " Saldo indisponível para consulta.";
             Avisar($"✅ @{evento.UserName}, importação de {moedasAImportar:N0} moedas concluída!" + detalheSaldo, evento?.BroadcastId);
             return true;
         }
         catch (Exception ex)
         {
-            CPH.TryGetArg("adicionarDestinatarioId", out string destinatarioId);
-
+            string destinatarioId = moedas?.DestinatarioId;
             string comandoManual = debitoStatus == "debitado" && creditoStatus == "falhou" ? $"!adicionar @{evento?.UserName} {moedasAImportar}" : null;
-
             LogError("RECUPERACAO_MANUAL " + JsonConvert.SerializeObject(new { operacaoId, timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), origem = "importacao", pastaStreamerBot = CPH.GetGlobalVar<string>("caminhoPastaStreamerBot", true), twitchUser, idCanalSE = idCanal, userId = evento?.UserId, userName = evento?.UserName, broadcastUserId = evento?.BroadcastUserId, broadcastUserName = evento?.BroadcastUserName, destinatarioId, quantidade = moedasAImportar, debitoStatus, creditoStatus, erro = ex.Message, comandoManual, orientacao = "Conferir usuário/ID e histórico antes de ajustar. Nunca repetir uma operação incerta. Crédito confirmado não deve ser adicionado novamente." }));
-
             if (creditoStatus == "creditado")
             {
                 Avisar($"⚠ @{evento?.UserName}, as {moedasAImportar:N0} moedas foram creditadas, mas houve falha posterior. Não repita a importação.", evento?.BroadcastId);
@@ -188,8 +182,18 @@ public class CPHInline
             {
                 Avisar($"❌ @{evento?.UserName}, não foi possível concluir a consulta ou o débito no StreamElements. Tente mais tarde.", evento?.BroadcastId);
             }
+
             return creditoStatus == "creditado";
         }
+    }
+
+    private void PrepararArgumentosSaldo(string usuarioId)
+    {
+        CPH.SetArgument("consultarChave", usuarioId);
+        CPH.SetArgument("consultarPorId", true);
+        CPH.SetArgument("consultarEncontrado", false);
+        CPH.SetArgument("consultarMoedas", 0);
+        CPH.SetArgument("consultarRank", 0);
     }
 
     private void Avisar(string mensagem, string broadcastId)
@@ -200,65 +204,13 @@ public class CPHInline
             {
                 mensagem = mensagem.Substring(0, LimiteMensagem - 3) + "...";
             }
+
             EnviarMensagem(mensagem, broadcastId, somenteNaTransmissao: true);
         }
         catch (Exception ex)
         {
             LogError("Falha ao enviar aviso ao chat: " + ex.Message);
         }
-    }
-
-    private Dictionary<string, string> CarregarVariaveisDoArquivo(string arqConfigSE)
-    {
-        var variaveisArquivo = new Dictionary<string, string>();
-
-        foreach (var line in File.ReadLines(arqConfigSE))
-        {
-            if (line.Contains("="))
-            {
-                var partes = line.Split(new[] { '=' }, 2);
-                if (partes.Length == 2)
-                {
-                    variaveisArquivo[partes[0].Trim()] = partes[1].Trim();
-                }
-            }
-        }
-        return variaveisArquivo;
-    }
-
-    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
-    {
-        // Direciona a resposta quando solicitado e há uma transmissão identificada.
-        if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
-        {
-            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
-        }
-        else
-        {
-            CPH.SendYouTubeMessage(mensagem, true, true);
-        }
-    }
-
-    private void LogError(string mensagem)
-    {
-        CPH.LogError(Prefixo + mensagem);
-    }
-
-    private Contexto ObterContexto()
-    {
-        CPH.TryGetArg("contextoJson", out string contextoJson);
-        if (string.IsNullOrEmpty(contextoJson))
-        {
-            return null;
-        }
-
-        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
-    }
-
-    public class Contexto
-    {
-        public Evento Evento { get; set; }
-        public Ambiente Ambiente { get; set; }
     }
 
     public class ApiStreamElements
@@ -287,11 +239,16 @@ public class CPHInline
                 RequestUri = new Uri(url),
                 Headers =
                 {
-                    { "Accept", "application/json; charset=utf-8" },
-                    { "Authorization", $"Bearer {this.jwtToken}" }
+                    {
+                        "Accept",
+                        "application/json; charset=utf-8"
+                    },
+                    {
+                        "Authorization",
+                        $"Bearer {this.jwtToken}"
+                    }
                 },
             };
-
             var getResponse = client.SendAsync(getRequest).GetAwaiter().GetResult();
             if (!getResponse.IsSuccessStatusCode)
             {
@@ -303,7 +260,6 @@ public class CPHInline
 
             int usuarioPoints = (int)json["points"];
             int usuarioRank = (int)json["rank"];
-
             return (usuarioPoints, usuarioRank);
         }
 
@@ -319,11 +275,16 @@ public class CPHInline
                     RequestUri = new Uri(url),
                     Headers =
                     {
-                        { "Accept", "application/json; charset=utf-8" },
-                        { "Authorization", $"Bearer {this.jwtToken}" }
+                        {
+                            "Accept",
+                            "application/json; charset=utf-8"
+                        },
+                        {
+                            "Authorization",
+                            $"Bearer {this.jwtToken}"
+                        }
                     },
                 };
-
                 DebitoStatus = "incerto";
                 var putResponse = client.SendAsync(putRequest).GetAwaiter().GetResult();
                 if (putResponse.IsSuccessStatusCode)
@@ -331,6 +292,7 @@ public class CPHInline
                     DebitoStatus = "debitado";
                     return true;
                 }
+
                 // Uma resposta de erro não comprova, por si só, que o servidor não debitou.
                 UltimoErro = "Débito SE não confirmado: HTTP " + (int)putResponse.StatusCode;
                 return false;
@@ -343,6 +305,118 @@ public class CPHInline
         }
     }
 
+    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
+    {
+        // Direciona a resposta quando solicitado e há uma transmissão identificada.
+        if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
+        {
+            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
+        }
+        else
+        {
+            CPH.SendYouTubeMessage(mensagem, true, true);
+        }
+    }
+
+    private void LogError(string mensagem)
+    {
+        CPH.LogError(Prefixo + mensagem);
+    }
+
+    private Dictionary<string, string> CarregarVariaveisDoArquivo(string arqConfigSE)
+    {
+        var variaveisArquivo = new Dictionary<string, string>();
+        foreach (var line in File.ReadLines(arqConfigSE))
+        {
+            if (line.Contains("="))
+            {
+                var partes = line.Split(new[] { '=' }, 2);
+                if (partes.Length == 2)
+                {
+                    variaveisArquivo[partes[0].Trim()] = partes[1].Trim();
+                }
+            }
+        }
+
+        return variaveisArquivo;
+    }
+
+    private Moedas LerResultadoCredito(string operacaoId)
+    {
+        // Só aceita a resposta concluída do pedido atual; ausência de confirmação não permite repetir o crédito.
+        try
+        {
+            Moedas moedas = LerContexto()?.Moedas;
+            if (moedas != null && moedas.OperacaoId == operacaoId && moedas.Concluido)
+            {
+                moedas.Status = moedas.Status == "creditado" || moedas.Status == "falhou" ? moedas.Status : "incerto";
+                return moedas;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogError("Erro ao ler o resultado do crédito: " + ex.Message);
+        }
+
+        return new Moedas
+        {
+            OperacaoId = operacaoId,
+            Erro = "Resposta de crédito ausente, incompleta ou de outra operação."
+        };
+    }
+
+    private Contexto LerContexto()
+    {
+        CPH.TryGetArg("contextoJson", out string contextoJson);
+        if (string.IsNullOrEmpty(contextoJson))
+        {
+            return null;
+        }
+
+        return JsonConvert.DeserializeObject<Contexto>(contextoJson);
+    }
+
+    public class Contexto
+    {
+        public ImportarMoedas ImportarMoedas { get; set; }
+
+        public Moedas Moedas { get; set; }
+
+        public Evento Evento { get; set; }
+
+        public Ambiente Ambiente { get; set; }
+
+        [JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, JToken> DadosComplementares { get; set; }
+    }
+
+    public class ImportarMoedas
+    {
+        public int Quantidade { get; set; }
+
+        public string OperacaoId { get; set; }
+        public string UsuarioId { get; set; }
+        public string Usuario { get; set; }
+        public string BroadcastUserId { get; set; }
+        public string BroadcastUserName { get; set; }
+
+        [JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, JToken> DadosComplementares { get; set; }
+    }
+
+    public class Moedas
+    {
+        public bool Concluido { get; set; }
+
+        public string OperacaoId { get; set; }
+        public string Status { get; set; } = "incerto";
+        public string Erro { get; set; } = "";
+        public string DestinatarioId { get; set; } = "";
+
+        [JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, JToken> DadosComplementares { get; set; }
+    }
+
     public class Evento
     {
         public string UserId { get; set; }
@@ -351,13 +425,18 @@ public class CPHInline
         public string BroadcastId { get; set; }
         public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
+
+        [JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, JToken> DadosComplementares { get; set; }
     }
 
     public class Ambiente
     {
         public string PastaSE { get; set; } = "";
-
         public string CaminhoConfigSE => Path.Combine(PastaSE, "ConfigSE.txt");
+
+        [JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, JToken> DadosComplementares { get; set; }
 
         public Ambiente()
         {

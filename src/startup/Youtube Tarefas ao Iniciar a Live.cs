@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 261003.1115
+// Atualização 261016.0920
 // Triggers -> Source: OBS Studio          | Type: Streaming Started | Enabled: Yes | Criteria: OBS
 //          -> Source: Youtube > Broadcast | Type: Broadcast Started | Enabled: Yes | Criteria: none
 public class CPHInline
@@ -92,7 +92,7 @@ public class CPHInline
                 CPH.UnsetGlobalVar("Subathon_Usuario", false);
                 CPH.UnsetGlobalVar("Subathon_TotalSegundos", false);
 
-                bool subathonOk = CPH.RunAction("Youtube Gerencia Subathon", true);
+                bool subathonOk = CPH.ExecuteMethod("Youtube Gerente de Subathon", "GerenciarSubathon");
 
                 if (!subathonOk)
                 {
