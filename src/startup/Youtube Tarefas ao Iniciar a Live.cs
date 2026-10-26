@@ -6,7 +6,7 @@ using Streamer.bot.Plugin.Interface.Model;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-// Atualização 261026.0940
+// Atualização 261026.1110
 // Padrões aplicados: 5
 // Revisão concluída: 1
 // Triggers -> Source: OBS Studio          | Type: Streaming Started | Enabled: Yes | Criteria: OBS
@@ -172,11 +172,6 @@ public class CPHInline
     private void LogError(string mensagem)
     {
         CPH.LogError(Prefixo + mensagem);
-    }
-
-    private void LogWarn(string mensagem)
-    {
-        CPH.LogWarn(Prefixo + mensagem);
     }
 
     private void LogInfo(string mensagem)
