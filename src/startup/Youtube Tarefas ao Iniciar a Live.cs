@@ -1,13 +1,23 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
+using Streamer.bot.Plugin.Interface.Model;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
-// Atualização 261016.0920
+// Atualização 261026.0940
+// Padrões aplicados: 5
+// Revisão concluída: 1
 // Triggers -> Source: OBS Studio          | Type: Streaming Started | Enabled: Yes | Criteria: OBS
 //          -> Source: Youtube > Broadcast | Type: Broadcast Started | Enabled: Yes | Criteria: none
 public class CPHInline
 {
+    private const int MaximoTentativasBroadcast = 24;
+    private const int IntervaloTentativasBroadcastMs = 5000;
+
+    private const string Prefixo = "[TAREFAS_AO_INICIAR] ";
+
     private static readonly object inicioLiveLock = new object();
 
     public bool Execute()
@@ -20,20 +30,34 @@ public class CPHInline
 
     private bool ExecutarInicio()
     {
+        string broadcastId = "";
         try
         {
-            var broadcasts = CPH.YouTubeGetMonitoredBroadcasts();
+            // Consulta imediatamente e repete a cada cinco segundos até o limite de tentativas.
+            var broadcasts = default(List<YouTubeBroadcastInfo>);
+            var horizontal = default(YouTubeBroadcastInfo);
 
-            if (broadcasts == null || broadcasts.Count == 0)
+            for (int tentativa = 1; horizontal == null && tentativa <= MaximoTentativasBroadcast; tentativa++)
             {
-                CPH.LogWarn(">>> [INICIO_LIVE] Nenhum broadcast do YouTube está sendo monitorado.");
-                return false;
+                broadcasts = CPH.YouTubeGetMonitoredBroadcasts();
+                horizontal = broadcasts?
+                    .Where(b => !string.IsNullOrWhiteSpace(b.Id) && !string.IsNullOrEmpty(b.Title) && b.Title.Contains("🔴"))
+                    .OrderByDescending(b => b.MonitoredAt)
+                    .FirstOrDefault();
+
+                if (horizontal == null && tentativa < MaximoTentativasBroadcast)
+                {
+                    LogInfo($"Horizontal ainda indisponível na tentativa {tentativa}/{MaximoTentativasBroadcast}; nova consulta em {IntervaloTentativasBroadcastMs / 1000} segundos.");
+                    CPH.Wait(IntervaloTentativasBroadcastMs);
+                }
             }
 
-            var horizontal = broadcasts
-                .Where(b => !string.IsNullOrEmpty(b.Title) && b.Title.Contains("🔴"))
-                .OrderByDescending(b => b.MonitoredAt)
-                .FirstOrDefault();
+            if (horizontal == null)
+            {
+                throw new InvalidOperationException($"Nenhuma transmissão horizontal com marcador 🔴 e ID válido foi encontrada após {MaximoTentativasBroadcast} consultas e {(MaximoTentativasBroadcast - 1) * IntervaloTentativasBroadcastMs / 1000} segundos de espera.");
+            }
+
+            broadcastId = horizontal.Id;
 
             var vertical = broadcasts
                 .Where(b => !string.IsNullOrEmpty(b.Title) && b.Title.Contains("🛑"))
@@ -47,14 +71,8 @@ public class CPHInline
                 if (broadcastIdVerticalAtual != vertical.Id)
                 {
                     CPH.SetGlobalVar("youtubeBroadcastIdVertical", vertical.Id, false);
-                    CPH.LogInfo($">>> [INICIO_LIVE] Broadcast vertical registrado: '{vertical.Title}' ({vertical.Id}).");
+                    LogInfo($"Broadcast vertical registrado: '{vertical.Title}' ({vertical.Id}).");
                 }
-            }
-
-            if (horizontal == null)
-            {
-                CPH.LogWarn(">>> [INICIO_LIVE] Nenhum broadcast horizontal com o marcador 🔴 foi encontrado.");
-                return true;
             }
 
             string ultimoHorizontalId = CPH.GetGlobalVar<string>("ultimoBroadcastIdHorizontal", false);
@@ -65,98 +83,136 @@ public class CPHInline
             if (novaHorizontal && vertical == null)
             {
                 CPH.UnsetGlobalVar("youtubeBroadcastIdVertical", false);
-                CPH.LogInfo(">>> [INICIO_LIVE] ID vertical anterior removido; nenhuma vertical foi encontrada nesta sessão.");
+                LogInfo("ID vertical anterior removido; nenhuma vertical foi encontrada nesta sessão.");
             }
 
+            // Youtube Gerente de Banco de Dados: prepara a estrutura do banco.
             bool schemaOk = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "GarantirSchema");
-
             if (!schemaOk)
             {
-                CPH.LogError(">>> [INICIO_LIVE] ERRO: falha ao garantir schema do banco de dados.");
-                CPH.SendYouTubeMessage("⚠ Falha ao preparar o banco de dados. Verifique os logs antes de usar os comandos.", true, true, horizontal.Id);
+                LogError("ERRO: falha ao garantir schema do banco de dados.");
+                EnviarMensagem("⚠ Falha ao preparar o banco de dados. Verifique os logs antes de usar os comandos.", horizontal.Id, somenteNaTransmissao: true);
                 return false;
             }
 
             if (!novaHorizontal)
             {
-                CPH.LogInfo($">>> [INICIO_LIVE] Broadcast horizontal '{horizontal.Id}' já processado; tarefas compartilhadas ignoradas.");
+                LogInfo($"Broadcast horizontal '{horizontal.Id}' já processado; tarefas compartilhadas ignoradas.");
                 return true;
             }
 
-            CPH.LogInfo($">>> [INICIO_LIVE] Nova transmissão horizontal identificada: '{horizontal.Title}' ({horizontal.Id}).");
+            LogInfo($"Nova transmissão horizontal identificada: '{horizontal.Title}' ({horizontal.Id}).");
 
             CPH.ResetFirstWords();
 
             if (SubathonEstaAtivo())
             {
-                CPH.UnsetGlobalVar("Subathon_Usuario", false);
-                CPH.UnsetGlobalVar("Subathon_TotalSegundos", false);
-
+                // Youtube Gerente de Subathon: inicializa o estado diário e atualiza o OBS.
                 bool subathonOk = CPH.ExecuteMethod("Youtube Gerente de Subathon", "GerenciarSubathon");
-
                 if (!subathonOk)
                 {
-                    CPH.LogError(">>> [INICIO_LIVE] ERRO: não foi possível inicializar as variáveis do subathon.");
-                    CPH.SendYouTubeMessage("⚠ Falha ao inicializar as variáveis do subathon.", true, true, horizontal.Id);
+                    LogError("ERRO: não foi possível inicializar as variáveis do subathon.");
+                    EnviarMensagem("⚠ Falha ao inicializar as variáveis do subathon.", horizontal.Id, somenteNaTransmissao: true);
                     return false;
                 }
 
+                // Youtube Gerente de Timer: inicia a contagem quando há tempo disponível.
                 bool timerOk = CPH.ExecuteMethod("Youtube Gerente de Timer", "IniciarTimer");
-
                 if (!timerOk)
                 {
-                    CPH.LogError(">>> [INICIO_LIVE] ERRO: não foi possível iniciar o timer.");
-                    CPH.SendYouTubeMessage("⚠ Falha ao iniciar o timer.", true, true, horizontal.Id);
+                    LogError("ERRO: não foi possível iniciar o timer.");
+                    EnviarMensagem("⚠ Falha ao iniciar o timer.", horizontal.Id, somenteNaTransmissao: true);
                     return false;
                 }
             }
 
+            // Youtube Moedas Surpresa: solicita o início do ciclo pela fila da Action.
             bool moedasSurpresaOk = CPH.RunAction("Youtube Moedas Surpresa", false);
-
             if (!moedasSurpresaOk)
             {
-                CPH.LogError(">>> [INICIO_LIVE] ERRO: não foi possível iniciar a ação Youtube Moedas Surpresa.");
+                LogError("ERRO: não foi possível iniciar a ação Youtube Moedas Surpresa.");
                 return false;
             }
 
             CPH.SetGlobalVar("ultimoBroadcastIdHorizontal", horizontal.Id, false);
-            CPH.LogInfo($">>> [INICIO_LIVE] Tarefas compartilhadas concluídas para o broadcast horizontal '{horizontal.Id}'.");
-            CPH.SendYouTubeMessage("Todas ações de início de live concluídas com sucesso!", true, true, horizontal.Id);
+            LogInfo($"Tarefas compartilhadas concluídas para o broadcast horizontal '{horizontal.Id}'.");
+            EnviarMensagem("Todas ações de início de live concluídas com sucesso!", horizontal.Id, somenteNaTransmissao: true);
 
             return true;
         }
         catch (Exception ex)
         {
-            CPH.LogError($">>> [INICIO_LIVE] ERRO CRÍTICO: {ex.Message}");
+            LogError($"ERRO CRÍTICO ao executar as ações de início de live: {ex}");
+            EnviarMensagem("Erro ao executar as ações de início de live. Consultar o log.", broadcastId, somenteNaTransmissao: true);
+
             return false;
         }
     }
 
     private bool SubathonEstaAtivo()
     {
-        try
-        {
-            Ambiente ambiente = new Ambiente(CPH);
-            VariaveisTimer timer = ObterVariaveisTimer(ambiente);
+        Ambiente ambiente = new Ambiente(CPH);
+        VariaveisTimer timer = LerVariaveisTimer(ambiente);
+        return timer.SubathonAtivo;
+    }
 
-            return timer?.SubathonAtivo ?? false;
-        }
-        catch (Exception ex)
+    private void EnviarMensagem(string mensagem, string broadcastId, bool somenteNaTransmissao)
+    {
+        // Direciona a resposta quando solicitado e há uma transmissão identificada.
+        if (somenteNaTransmissao && !string.IsNullOrWhiteSpace(broadcastId))
         {
-            CPH.LogError($">>> [INICIO_LIVE] Erro ao verificar SubathonAtivo: {ex.Message}");
-            return false;
+            CPH.SendYouTubeMessage(mensagem, true, true, broadcastId);
+        }
+        else
+        {
+            CPH.SendYouTubeMessage(mensagem, true, true);
         }
     }
 
-    private VariaveisTimer ObterVariaveisTimer(Ambiente ambiente)
+    private void LogError(string mensagem)
     {
-        if (!File.Exists(ambiente.VariaveisTimer)) return null;
+        CPH.LogError(Prefixo + mensagem);
+    }
 
-        string json = File.ReadAllText(ambiente.VariaveisTimer);
-        if (string.IsNullOrEmpty(json))
-            return null;
+    private void LogWarn(string mensagem)
+    {
+        CPH.LogWarn(Prefixo + mensagem);
+    }
 
-        return JsonConvert.DeserializeObject<VariaveisTimer>(json);
+    private void LogInfo(string mensagem)
+    {
+        CPH.LogInfo(Prefixo + mensagem);
+    }
+
+    private VariaveisTimer LerVariaveisTimer(Ambiente ambiente)
+    {
+        // Diferencia Subathon desativado de configuração ausente ou inválida.
+        if (string.IsNullOrWhiteSpace(ambiente.PastaRaiz))
+        {
+            throw new InvalidOperationException("Variável 'caminhoPastaStreamerBot' ausente ou vazia.");
+        }
+
+        try
+        {
+            string json = File.ReadAllText(ambiente.VariaveisTimer);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                throw new InvalidDataException("Arquivo vazio.");
+            }
+
+            JObject configuracao = JObject.Parse(json);
+            JToken subathonAtivo = configuracao["SubathonAtivo"];
+            if (subathonAtivo == null || subathonAtivo.Type != JTokenType.Boolean)
+            {
+                throw new InvalidDataException("Campo 'SubathonAtivo' ausente ou inválido; esperado true ou false.");
+            }
+
+            return configuracao.ToObject<VariaveisTimer>();
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Falha ao ler a configuração do Timer em '{ambiente.VariaveisTimer}': {ex.Message}", ex);
+        }
     }
 
     private class VariaveisTimer
@@ -170,11 +226,6 @@ public class CPHInline
 
         public string PastaVariaveis => Path.Combine(PastaRaiz, "Variáveis");
         public string VariaveisTimer => Path.Combine(PastaVariaveis, "Timer_Variaveis.json");
-
-        // Construtor vazio necessário para desserialização do contexto.
-        public Ambiente()
-        {
-        }
 
         public Ambiente(IInlineInvokeProxy CPH)
         {
