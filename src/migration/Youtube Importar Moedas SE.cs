@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-// Atualização 261022.0630
+// Atualização 261030.0750
 // Padrões aplicados: 5
 // Revisão concluída: 1
 public class CPHInline
@@ -155,7 +155,7 @@ public class CPHInline
 
             bool consultou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "SaldoMoedasUsuario");
             CPH.TryGetArg("consultarEncontrado", out bool encontrado);
-            CPH.TryGetArg("consultarMoedas", out int saldoAtual);
+            CPH.TryGetArg("consultarMoedas", out long saldoAtual);
             CPH.TryGetArg("consultarRank", out int rankUsuario);
             string detalheSaldo = consultou && encontrado ? $" Saldo: {saldoAtual:N0} (#{rankUsuario})." : " Saldo indisponível para consulta.";
             Avisar($"✅ @{evento.UserName}, importação de {moedasAImportar:N0} moedas concluída!" + detalheSaldo, evento?.BroadcastId);
@@ -191,8 +191,11 @@ public class CPHInline
     {
         CPH.SetArgument("consultarChave", usuarioId);
         CPH.SetArgument("consultarPorId", true);
+        CPH.SetArgument("consultarCanalId", "");
+        CPH.SetArgument("consultarIncluirRank", true);
+        CPH.SetArgument("consultarValidarMinecraft", false);
         CPH.SetArgument("consultarEncontrado", false);
-        CPH.SetArgument("consultarMoedas", 0);
+        CPH.SetArgument("consultarMoedas", 0L);
         CPH.SetArgument("consultarRank", 0);
     }
 

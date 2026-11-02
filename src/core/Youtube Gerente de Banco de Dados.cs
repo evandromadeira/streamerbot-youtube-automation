@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 261024.1245
+// Atualização 261030.1040
 // Padrões aplicados: 5
 // Revisão concluída: 1
 public class CPHInline
@@ -188,6 +188,8 @@ public class CPHInline
                     doacaoId INTEGER,
                     status TEXT NOT NULL DEFAULT 'DEBITADO' CHECK (status IN ('DEBITADO', 'PENDENTE', 'EXECUTADO', 'PARCIAL', 'FALHOU', 'INCERTO')),
                     mensagemResultado TEXT NOT NULL,
+                    statusCobranca TEXT CHECK(statusCobranca IN ('NAO_INICIADA','CONFIRMADA','NAO_REALIZADA','INCERTA','ESTORNADA')),
+                    mensagemCobranca TEXT NOT NULL DEFAULT '',
                     estornado INTEGER NOT NULL DEFAULT 0 CHECK(estornado IN (0,1)),
                     timestamp TEXT NOT NULL,
                     atualizadoEm TEXT NOT NULL,
@@ -535,35 +537,6 @@ public class CPHInline
         }
     }
 
-    public bool VerificarBancoMinecraft()
-    {
-        // Registro e cobrança dos resgates Minecraft
-        CPH.SetArgument("minecraftDbResultado", "INDISPONIVEL");
-        try
-        {
-            Ambiente ambiente = new Ambiente(CPH);
-            using (var connection = AbrirConexao(ambiente, true))
-            {
-                using (var cmd = new SQLiteCommand("SELECT id,operacaoId,userId,userName,broadcastUserId,broadcastUserName,regraId,mundo,origem,valorPago,valorBRL,doacaoId,status,mensagemResultado,estornado,timestamp,atualizadoEm FROM YoutubeMinecraftResgates LIMIT 0;", connection))
-                    cmd.ExecuteNonQuery();
-                CPH.TryGetArg("origem", out string origem);
-                if (origem == "moedas")
-                {
-                    using (var cmd = new SQLiteCommand("SELECT userId,userName,broadcastUserId,coinBalance FROM YoutubeUsuariosMoeda LIMIT 0;", connection))
-                        cmd.ExecuteNonQuery();
-                }
-            }
-
-            CPH.SetArgument("minecraftDbResultado", "DISPONIVEL");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            LogError("Banco Minecraft indisponivel; confira GarantirSchema: " + ex.Message);
-            return false;
-        }
-    }
-
     public bool RegistrarContribuicaoMinecraft()
     {
         // Registra contribuições sem debitar moedas e correlaciona a confirmação de cada tentativa.
@@ -786,7 +759,7 @@ public class CPHInline
             Ambiente ambiente = new Ambiente(CPH);
             using (var connection = AbrirConexao(ambiente, true))
             using (var cmd = new SQLiteCommand(@"SELECT id,operacaoId FROM YoutubeMinecraftResgates
-                                                WHERE mundo=@mundo AND status IN ('PENDENTE','DEBITADO','INCERTO')
+                                                WHERE mundo=@mundo AND (status IN ('PENDENTE','DEBITADO','INCERTO') OR (status='FALHOU' AND statusCobranca='CONFIRMADA'))
                                                   AND estornado=0 AND id>@aposId
                                                 ORDER BY id LIMIT @limite;", connection))
             {
@@ -849,6 +822,8 @@ public class CPHInline
                     CPH.SetArgument("minecraftCanalId", Convert.ToString(reader["broadcastUserId"]));
                     CPH.SetArgument("minecraftBroadcastUserName", Convert.ToString(reader["broadcastUserName"]));
                     CPH.SetArgument("minecraftMensagemResultado", Convert.ToString(reader["mensagemResultado"]));
+                    CPH.SetArgument("minecraftStatusCobranca", reader["statusCobranca"] == DBNull.Value ? "LEGADO" : Convert.ToString(reader["statusCobranca"]));
+                    CPH.SetArgument("minecraftMensagemCobranca", Convert.ToString(reader["mensagemCobranca"]));
                     CPH.SetArgument("minecraftDoacaoId", reader["doacaoId"] == DBNull.Value ? 0L : Convert.ToInt64(reader["doacaoId"]));
                     CPH.SetArgument("minecraftRegraId", Convert.ToString(reader["regraId"]));
                     CPH.SetArgument("mundoEsperado", Convert.ToString(reader["mundo"]));
@@ -869,15 +844,15 @@ public class CPHInline
 
     public bool ProcessarResgateMinecraft()
     {
+        // Execução e cobrança independentes; débito e sua confirmação são gravados na mesma transação.
         CPH.SetArgument("minecraftDbResultado", "INCERTO");
+        CPH.SetArgument("minecraftStatusCobranca", "INCERTA");
+        CPH.SetArgument("minecraftMensagemCobranca", "");
         CPH.SetArgument("minecraftLogUsuarioEncontrado", false);
         CPH.SetArgument("minecraftLogUserId", "");
         CPH.SetArgument("minecraftLogUserName", "");
         CPH.SetArgument("minecraftLogCoinBalance", 0L);
         CPH.SetArgument("minecraftLogResgateId", 0L);
-        bool debitoPossivel = true;
-        bool registroConsultado = false;
-        bool registroExistia = true;
         try
         {
             CPH.TryGetArg("minecraftOperacaoId", out string id);
@@ -889,10 +864,19 @@ public class CPHInline
             CPH.TryGetArg("mundoEsperado", out string mundo);
             CPH.TryGetArg("minecraftCusto", out int custo);
             CPH.TryGetArg("minecraftDbOperacao", out string operacao);
+            CPH.TryGetArg("minecraftStatusRegistro", out string statusRecebido);
+            CPH.TryGetArg("minecraftCobrancaInicial", out string cobrancaInicial);
             CPH.TryGetArg("minecraftIncluirDadosLog", out bool incluirDadosLog);
             CPH.TryGetArg("minecraftMensagemResultado", out string mensagemResultado);
-            Guid uuid;
-            if (!Guid.TryParseExact(id, "D", out uuid) || string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(canalId) || string.IsNullOrWhiteSpace(regraId) || string.IsNullOrWhiteSpace(mundo) || custo <= 0)
+            if (!Guid.TryParseExact(id, "D", out Guid uuid) || string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(canalId) || string.IsNullOrWhiteSpace(regraId) || string.IsNullOrWhiteSpace(mundo) || custo <= 0)
+            {
+                return false;
+            }
+
+            bool consultar = operacao == "CONSULTAR_COBRANCA";
+            bool debitar = operacao == "DEBITAR";
+            string solicitado = debitar ? statusRecebido : operacao;
+            if (!consultar && solicitado != "PENDENTE" && solicitado != "EXECUTADO" && solicitado != "PARCIAL" && solicitado != "FALHOU" && solicitado != "INCERTO")
             {
                 return false;
             }
@@ -904,10 +888,10 @@ public class CPHInline
                 try
                 {
                     int estornado = 0;
-
                     long resgateId = 0;
-
                     string estado = null;
+                    string cobranca = null;
+                    string mensagemCobranca = "";
                     using (var cmd = new SQLiteCommand("SELECT * FROM YoutubeMinecraftResgates WHERE operacaoId=@id;", connection))
                     {
                         cmd.Parameters.AddWithValue("@id", id);
@@ -915,41 +899,37 @@ public class CPHInline
                         {
                             if (reader.Read())
                             {
-                                debitoPossivel = true;
                                 if (Convert.ToString(reader["origem"]) != "moedas" || Convert.ToString(reader["userId"]) != userId || Convert.ToString(reader["broadcastUserId"]) != canalId || Convert.ToString(reader["regraId"]) != regraId || Convert.ToString(reader["mundo"]) != mundo || Convert.ToInt32(reader["valorPago"]) != custo)
                                 {
                                     throw new InvalidOperationException("Operacao Minecraft com parametros conflitantes.");
                                 }
-
                                 estado = Convert.ToString(reader["status"]);
+                                cobranca = reader["statusCobranca"] == DBNull.Value ? "LEGADO" : Convert.ToString(reader["statusCobranca"]);
+                                mensagemCobranca = Convert.ToString(reader["mensagemCobranca"]);
                                 estornado = Convert.ToInt32(reader["estornado"]);
                                 resgateId = Convert.ToInt64(reader["id"]);
                             }
                         }
                     }
 
-                    registroConsultado = true;
-                    registroExistia = estado != null;
-                    debitoPossivel = registroExistia;
-                    string agora = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                    if (operacao == "DEBITAR" && estado == null)
+                    if (consultar)
                     {
-                        debitoPossivel = true;
-                        if (!DebitarMoedas(connection, userId, custo, canalId))
-                        {
-                            if (incluirDadosLog)
-                            {
-                                PrepararLogResgateMinecraft(connection, userId, canalId, resgateId);
-                            }
+                        ConfirmarTransacao(connection);
+                        CPH.SetArgument("minecraftStatusCobranca", cobranca ?? "AUSENTE");
+                        CPH.SetArgument("minecraftMensagemCobranca", mensagemCobranca);
+                        CPH.SetArgument("minecraftDbResultado", cobranca ?? "AUSENTE");
+                        return true;
+                    }
 
-                            RollbackTransacao(connection);
-                            CPH.SetArgument("minecraftDbResultado", "SALDO_INSUFICIENTE");
-                            return true;
-                        }
-
+                    string agora = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    if (estado == null)
+                    {
+                        estado = solicitado;
+                        cobranca = debitar ? "NAO_INICIADA" : cobrancaInicial == "NAO_REALIZADA" ? "NAO_REALIZADA" : "INCERTA";
+                        mensagemCobranca = debitar ? "" : cobranca == "NAO_REALIZADA" ? "Nenhum débito solicitado nesta chamada." : "Cobrança sem confirmação; conferir operação antes de qualquer intervenção.";
                         using (var cmd = new SQLiteCommand(@"INSERT INTO YoutubeMinecraftResgates
-                            (operacaoId,userId,userName,broadcastUserId,broadcastUserName,regraId,mundo,origem,valorPago,valorBRL,doacaoId,status,mensagemResultado,timestamp,atualizadoEm)
-                            VALUES (@id,@usuario,@nomeUsuario,@canal,@nomeCanal,@regra,@mundo,'moedas',@custo,NULL,NULL,'DEBITADO',@mensagem,@agora,@agora);", connection))
+                            (operacaoId,userId,userName,broadcastUserId,broadcastUserName,regraId,mundo,origem,valorPago,valorBRL,doacaoId,status,mensagemResultado,statusCobranca,mensagemCobranca,timestamp,atualizadoEm)
+                            VALUES (@id,@usuario,@nomeUsuario,@canal,@nomeCanal,@regra,@mundo,'moedas',@custo,NULL,NULL,@estado,@mensagem,@cobranca,@mensagemCobranca,@agora,@agora);", connection))
                         {
                             cmd.Parameters.AddWithValue("@id", id);
                             cmd.Parameters.AddWithValue("@usuario", userId);
@@ -959,151 +939,151 @@ public class CPHInline
                             cmd.Parameters.AddWithValue("@regra", regraId);
                             cmd.Parameters.AddWithValue("@mundo", mundo);
                             cmd.Parameters.AddWithValue("@custo", custo);
+                            cmd.Parameters.AddWithValue("@estado", estado);
                             cmd.Parameters.AddWithValue("@mensagem", mensagemResultado ?? "");
+                            cmd.Parameters.AddWithValue("@cobranca", cobranca);
+                            cmd.Parameters.AddWithValue("@mensagemCobranca", mensagemCobranca);
                             cmd.Parameters.AddWithValue("@agora", agora);
                             cmd.ExecuteNonQuery();
                         }
-
-                        estado = "DEBITADO";
+                        using (var cmd = new SQLiteCommand("SELECT last_insert_rowid();", connection))
+                        {
+                            resgateId = Convert.ToInt64(cmd.ExecuteScalar());
+                        }
                     }
-                    else if (operacao != "DEBITAR")
+
+                    if (debitar && cobranca == "NAO_INICIADA" && estornado == 0)
                     {
-                        if (estado == null || (operacao != "EXECUTADO" && operacao != "PENDENTE" && operacao != "INCERTO" && operacao != "PARCIAL" && operacao != "FALHOU"))
+                        if (estado == "FALHOU" || estado == "INCERTO")
                         {
-                            throw new InvalidOperationException("Resultado de resgate invalido.");
+                            cobranca = "NAO_REALIZADA";
+                            mensagemCobranca = "Execução falhou ou aceite não confirmado; nenhum débito solicitado.";
                         }
-
-                        // Preservar resultados terminais; FALHOU exige recibo confirmado pelo consumidor.
-                        if (estornado == 0 && estado != "EXECUTADO" && estado != "PARCIAL")
+                        else if (DebitarMoedas(connection, userId, custo, canalId))
                         {
-                            if (operacao == "FALHOU")
-                            {
-                                if (!CreditarMoedas(connection, userId, custo))
-                                {
-                                    throw new InvalidOperationException("Estorno nao confirmado.");
-                                }
-
-                                estornado = 1;
-                            }
-
-                            estado = operacao;
-                            using (var cmd = new SQLiteCommand("UPDATE YoutubeMinecraftResgates SET status=@estado,estornado=@estornado,mensagemResultado=@mensagem,atualizadoEm=@agora WHERE operacaoId=@id;", connection))
-                            {
-                                cmd.Parameters.AddWithValue("@id", id);
-                                cmd.Parameters.AddWithValue("@estado", estado);
-                                cmd.Parameters.AddWithValue("@estornado", estornado);
-                                cmd.Parameters.AddWithValue("@mensagem", mensagemResultado ?? "");
-                                cmd.Parameters.AddWithValue("@agora", agora);
-                                cmd.ExecuteNonQuery();
-                            }
+                            cobranca = "CONFIRMADA";
+                            mensagemCobranca = "Débito confirmado após o aceite persistido pelo mod.";
+                        }
+                        else
+                        {
+                            cobranca = "NAO_REALIZADA";
+                            mensagemCobranca = "Saldo insuficiente ou usuário indisponível na cobrança; recompensa mantida.";
                         }
                     }
 
-                    if (incluirDadosLog && operacao == "EXECUTADO" && estado == "EXECUTADO" && estornado == 0)
+                    // Não regride um resultado terminal nem troca uma fila confirmada por incerteza de transporte.
+                    if (estado != "EXECUTADO" && estado != "PARCIAL" && estado != "FALHOU" && !(estado == "PENDENTE" && solicitado == "INCERTO"))
+                    {
+                        estado = solicitado;
+                    }
+
+                    if (estado == "FALHOU" && cobranca == "CONFIRMADA" && estornado == 0)
+                    {
+                        if (!CreditarMoedas(connection, userId, custo))
+                        {
+                            throw new InvalidOperationException("Estorno nao confirmado.");
+                        }
+                        estornado = 1;
+                        cobranca = "ESTORNADA";
+                        mensagemCobranca = "Débito devolvido após falha confirmada da recompensa.";
+                    }
+
+                    using (var cmd = new SQLiteCommand(@"UPDATE YoutubeMinecraftResgates SET status=@estado,
+                        mensagemResultado=CASE WHEN status=@solicitado OR (status NOT IN ('EXECUTADO','PARCIAL','FALHOU') AND NOT(status='PENDENTE' AND @solicitado='INCERTO')) THEN @mensagem ELSE mensagemResultado END,
+                        statusCobranca=@cobranca,mensagemCobranca=@mensagemCobranca,estornado=@estornado,atualizadoEm=@agora WHERE operacaoId=@id;", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@id", id);
+                        cmd.Parameters.AddWithValue("@estado", estado);
+                        cmd.Parameters.AddWithValue("@solicitado", solicitado);
+                        cmd.Parameters.AddWithValue("@mensagem", mensagemResultado ?? "");
+                        cmd.Parameters.AddWithValue("@cobranca", cobranca == "LEGADO" ? (object)DBNull.Value : cobranca);
+                        cmd.Parameters.AddWithValue("@mensagemCobranca", mensagemCobranca);
+                        cmd.Parameters.AddWithValue("@estornado", estornado);
+                        cmd.Parameters.AddWithValue("@agora", agora);
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    if (incluirDadosLog)
                     {
                         PrepararLogResgateMinecraft(connection, userId, canalId, resgateId);
                     }
-
                     ConfirmarTransacao(connection);
-                    CPH.SetArgument("minecraftDbResultado", estornado == 1 ? "ESTORNADO" : estado);
+                    CPH.SetArgument("minecraftStatusCobranca", cobranca);
+                    CPH.SetArgument("minecraftMensagemCobranca", mensagemCobranca);
+                    CPH.SetArgument("minecraftDbResultado", debitar ? cobranca : estornado == 1 ? "ESTORNADO" : estado);
                     return true;
                 }
                 catch
                 {
                     RollbackTransacao(connection);
-                    if (registroConsultado && !registroExistia)
-                    {
-                        debitoPossivel = false;
-                    }
-
                     throw;
                 }
             }
         }
         catch (Exception ex)
         {
-            if (!debitoPossivel)
-            {
-                CPH.SetArgument("minecraftDbResultado", "SEM_DEBITO");
-            }
-
             LogError("ERRO no resgate Minecraft: " + ex.ToString());
             return false;
         }
     }
-
     public bool SaldoMoedasUsuario()
     {
-        // Youtube Gerente de Moedas e importação: consulta saldo e ranking de um usuário por ID ou nome.
+        // Consulta compartilhada; ranking e validação da tabela Minecraft são opcionais.
+        CPH.SetArgument("consultarEncontrado", false);
+        CPH.SetArgument("consultarNomeExibido", "");
+        CPH.SetArgument("consultarMoedas", 0L);
+        CPH.SetArgument("consultarRank", 0);
         try
         {
             CPH.TryGetArg("consultarChave", out string chave);
             CPH.TryGetArg("consultarPorId", out bool consultarPorId);
-            if (string.IsNullOrEmpty(chave))
+            CPH.TryGetArg("consultarCanalId", out string canalId);
+            CPH.TryGetArg("consultarValidarMinecraft", out bool validarMinecraft);
+            bool incluirRank = !CPH.TryGetArg("consultarIncluirRank", out bool solicitarRank) || solicitarRank;
+            if (string.IsNullOrWhiteSpace(chave) || (validarMinecraft && (!consultarPorId || string.IsNullOrWhiteSpace(canalId))))
             {
-                LogError("ERRO: chave ausente para SaldoMoedasUsuario.");
-                CPH.SetArgument("consultarEncontrado", false);
-                return false;
+                throw new InvalidOperationException("Usuário ou canal ausente para consultar saldo.");
             }
 
             Ambiente ambiente = new Ambiente(CPH);
-            if (!File.Exists(ambiente.CaminhoBanco))
+            using (var connection = AbrirConexao(ambiente, true))
             {
-                LogError("ERRO: banco de dados não encontrado para SaldoMoedasUsuario.");
-                CPH.SetArgument("consultarEncontrado", false);
-                return false;
-            }
-
-            using (var connection = AbrirConexao(ambiente))
-            {
-                int? moedasUsuario = null;
-
-                string selectSql = consultarPorId ? "SELECT userName, coinBalance, lastCoinAt FROM YoutubeUsuariosMoeda WHERE userId = @chave" : "SELECT userName, coinBalance, lastCoinAt FROM YoutubeUsuariosMoeda WHERE userName = @chave COLLATE NOCASE";
-                string nomeExibido = null;
-                string ultimoCredito = null;
-                using (var cmd = new SQLiteCommand(selectSql, connection))
+                if (validarMinecraft)
                 {
-                    cmd.Parameters.AddWithValue("@chave", chave);
-                    using (var reader = cmd.ExecuteReader())
+                    using (var schema = new SQLiteCommand("SELECT statusCobranca,mensagemCobranca FROM YoutubeMinecraftResgates LIMIT 0;", connection))
                     {
-                        if (reader.Read())
-                        {
-                            nomeExibido = reader["userName"].ToString();
-                            moedasUsuario = Convert.ToInt32(reader["coinBalance"]);
-                            ultimoCredito = reader["lastCoinAt"] == DBNull.Value ? null : reader["lastCoinAt"].ToString();
-                        }
+                        schema.ExecuteNonQuery();
                     }
                 }
-
-                if (moedasUsuario == null)
+                var usuario = ConsultarUsuarioMoedas(connection, chave, consultarPorId, canalId);
+                if (!usuario.Encontrado)
                 {
-                    CPH.SetArgument("consultarEncontrado", false);
                     return true;
                 }
 
-                int rankUsuario;
-                using (var rankCmd = new SQLiteCommand("SELECT COUNT(*) FROM YoutubeUsuariosMoeda WHERE coinBalance > @moedas", connection))
+                int rank = 0;
+                if (incluirRank)
                 {
-                    rankCmd.Parameters.AddWithValue("@moedas", moedasUsuario.Value);
-                    rankUsuario = Convert.ToInt32(rankCmd.ExecuteScalar()) + 1;
+                    using (var cmd = new SQLiteCommand("SELECT COUNT(*) FROM YoutubeUsuariosMoeda WHERE coinBalance > @moedas", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@moedas", usuario.Saldo);
+                        rank = Convert.ToInt32(cmd.ExecuteScalar()) + 1;
+                    }
                 }
 
+                CPH.SetArgument("consultarNomeExibido", usuario.Nome);
+                CPH.SetArgument("consultarMoedas", usuario.Saldo);
+                CPH.SetArgument("consultarRank", rank);
                 CPH.SetArgument("consultarEncontrado", true);
-                CPH.SetArgument("consultarNomeExibido", nomeExibido);
-                CPH.SetArgument("consultarMoedas", moedasUsuario.Value);
-                CPH.SetArgument("consultarRank", rankUsuario);
             }
-
             return true;
         }
         catch (Exception ex)
         {
             LogError("ERRO ao consultar moedas: " + ex.Message);
-            CPH.SetArgument("consultarEncontrado", false);
             return false;
         }
     }
-
     public bool ConsultarTopMoedas()
     {
         // Monta o ranking dos N maiores saldos de moeda, pro comando !topmoedas
@@ -1247,17 +1227,11 @@ public class CPHInline
                     }
 
                     // Só a atividade de chat atualiza lastCoinAt; os demais créditos preservam esse cooldown.
-                    string sql = ehAtividadeChat ? @"INSERT INTO YoutubeUsuariosMoeda (userId, userName, coinBalance, lastCoinAt, broadcastUserId, broadcastUserName)
-                                    VALUES (@userId, @userName, @quantidadeMoedas, @agora, @broadcastUserId, @broadcastUserName)
+                    string sql = @"INSERT INTO YoutubeUsuariosMoeda (userId, userName, coinBalance, lastCoinAt, broadcastUserId, broadcastUserName)
+                                    VALUES (@userId, @userName, @quantidadeMoedas, @ultimoCredito, @broadcastUserId, @broadcastUserName)
                                     ON CONFLICT(userId) DO UPDATE SET
                                     coinBalance = coinBalance + excluded.coinBalance,
-                                    lastCoinAt = excluded.lastCoinAt,
-                                    userName = excluded.userName,
-                                    broadcastUserId = COALESCE(excluded.broadcastUserId, broadcastUserId),
-                                    broadcastUserName = COALESCE(excluded.broadcastUserName, broadcastUserName);" : @"INSERT INTO YoutubeUsuariosMoeda (userId, userName, coinBalance, lastCoinAt, broadcastUserId, broadcastUserName)
-                                    VALUES (@userId, @userName, @quantidadeMoedas, NULL, @broadcastUserId, @broadcastUserName)
-                                    ON CONFLICT(userId) DO UPDATE SET
-                                    coinBalance = coinBalance + excluded.coinBalance,
+                                    lastCoinAt = CASE WHEN @atualizarUltimoCredito = 1 THEN excluded.lastCoinAt ELSE lastCoinAt END,
                                     userName = excluded.userName,
                                     broadcastUserId = COALESCE(excluded.broadcastUserId, broadcastUserId),
                                     broadcastUserName = COALESCE(excluded.broadcastUserName, broadcastUserName);";
@@ -1266,10 +1240,8 @@ public class CPHInline
                         cmd.Parameters.AddWithValue("@userId", destinatarioId);
                         cmd.Parameters.AddWithValue("@userName", userName);
                         cmd.Parameters.AddWithValue("@quantidadeMoedas", quantidadeMoedas);
-                        if (ehAtividadeChat)
-                        {
-                            cmd.Parameters.AddWithValue("@agora", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-                        }
+                        cmd.Parameters.AddWithValue("@atualizarUltimoCredito", ehAtividadeChat ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@ultimoCredito", ehAtividadeChat ? (object)DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") : DBNull.Value);
 
                         cmd.Parameters.AddWithValue("@broadcastUserId", string.IsNullOrEmpty(broadcastUserId) ? (object)DBNull.Value : broadcastUserId);
                         cmd.Parameters.AddWithValue("@broadcastUserName", (object)broadcastUserName ?? DBNull.Value);
@@ -1362,7 +1334,7 @@ public class CPHInline
                         return true;
                     }
 
-                    int saldoRemetente = ObterSaldoUsuario(connection, remetenteUserId);
+                    int saldoRemetente = checked((int)ConsultarUsuarioMoedas(connection, remetenteUserId).Saldo);
                     if (saldoRemetente < quantidade)
                     {
                         RollbackTransacao(connection);
@@ -1375,7 +1347,7 @@ public class CPHInline
                     {
                         RollbackTransacao(connection);
                         CPH.SetArgument("transferirResultado", "SaldoInsuficiente");
-                        CPH.SetArgument("transferirSaldoRemetente", ObterSaldoUsuario(connection, remetenteUserId));
+                        CPH.SetArgument("transferirSaldoRemetente", checked((int)ConsultarUsuarioMoedas(connection, remetenteUserId).Saldo));
                         return true;
                     }
 
@@ -1545,7 +1517,7 @@ public class CPHInline
                         return true;
                     }
 
-                    int saldoAtual = ObterSaldoUsuario(connection, userId);
+                    int saldoAtual = checked((int)ConsultarUsuarioMoedas(connection, userId).Saldo);
                     if (saldoAtual < valor)
                     {
                         RollbackTransacao(connection);
@@ -1618,7 +1590,7 @@ public class CPHInline
                     {
                         RollbackTransacao(connection);
                         CPH.SetArgument("apostarPalpiteResultado", "SaldoInsuficiente");
-                        CPH.SetArgument("apostarPalpiteSaldoAtual", ObterSaldoUsuario(connection, userId));
+                        CPH.SetArgument("apostarPalpiteSaldoAtual", checked((int)ConsultarUsuarioMoedas(connection, userId).Saldo));
                         return true;
                     }
 
@@ -2413,7 +2385,7 @@ public class CPHInline
                     }
 
                     // Valida o saldo do usuário
-                    int saldoAtual = ObterSaldoUsuario(connection, userId);
+                    int saldoAtual = checked((int)ConsultarUsuarioMoedas(connection, userId).Saldo);
                     int valorItem = CalcularValorItemComDesconto(itemCatalogo.Valor, percentualDesconto);
                     CPH.SetArgument("plataformaSaldoAtual", saldoAtual);
                     CPH.SetArgument("plataformaValorItem", valorItem);
@@ -2953,17 +2925,33 @@ public class CPHInline
         }
     }
 
-    private int ObterSaldoUsuario(SQLiteConnection connection, string userId)
+    private (bool Encontrado, string Nome, long Saldo) ConsultarUsuarioMoedas(SQLiteConnection connection, string chave, bool consultarPorId = true, string canalId = null)
     {
-        // Retorna o saldo atual de moedas de um usuário
-        using (var cmd = new SQLiteCommand("SELECT coinBalance FROM YoutubeUsuariosMoeda WHERE userId = @userId", connection))
+        // Reutiliza a conexão do chamador para buscar usuário e saldo, com conferência opcional do canal.
+        string sql = consultarPorId
+            ? "SELECT userName, coinBalance FROM YoutubeUsuariosMoeda WHERE userId = @chave"
+            : "SELECT userName, coinBalance FROM YoutubeUsuariosMoeda WHERE userName = @chave COLLATE NOCASE";
+        if (!string.IsNullOrWhiteSpace(canalId))
         {
-            cmd.Parameters.AddWithValue("@userId", userId);
-            var resultado = cmd.ExecuteScalar();
-            return resultado != null && resultado != DBNull.Value ? Convert.ToInt32(resultado) : 0;
+            sql += " AND broadcastUserId = @canal";
+        }
+        using (var cmd = new SQLiteCommand(sql, connection))
+        {
+            cmd.Parameters.AddWithValue("@chave", chave);
+            if (!string.IsNullOrWhiteSpace(canalId))
+            {
+                cmd.Parameters.AddWithValue("@canal", canalId);
+            }
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (!reader.Read())
+                {
+                    return (false, "", 0L);
+                }
+                return (true, reader["userName"].ToString(), reader["coinBalance"] == DBNull.Value ? 0L : Convert.ToInt64(reader["coinBalance"]));
+            }
         }
     }
-
     private int ContarDiasPresenca(SQLiteConnection connection, string userId, DateTime? desde)
     {
         // Conta dias distintos com mensagem no YoutubeChatLog, opcionalmente a partir de uma data

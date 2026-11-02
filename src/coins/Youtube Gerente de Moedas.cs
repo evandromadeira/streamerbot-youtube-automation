@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-// Atualização 261022.0630
+// Atualização 261030.0750
 // Padrões aplicados: 5
 // Revisão concluída: 1
 public class CPHInline
@@ -55,7 +55,7 @@ public class CPHInline
             }
 
             CPH.TryGetArg("consultarNomeExibido", out string nomeExibido);
-            CPH.TryGetArg("consultarMoedas", out int moedas);
+            CPH.TryGetArg("consultarMoedas", out long moedas);
             CPH.TryGetArg("consultarRank", out int rank);
             string posicaoTexto = rank switch
             {
@@ -610,9 +610,12 @@ public class CPHInline
     {
         CPH.SetArgument("consultarChave", chave);
         CPH.SetArgument("consultarPorId", consultarPorId);
+        CPH.SetArgument("consultarCanalId", "");
+        CPH.SetArgument("consultarIncluirRank", true);
+        CPH.SetArgument("consultarValidarMinecraft", false);
         CPH.SetArgument("consultarEncontrado", false);
         CPH.SetArgument("consultarNomeExibido", "");
-        CPH.SetArgument("consultarMoedas", 0);
+        CPH.SetArgument("consultarMoedas", 0L);
         CPH.SetArgument("consultarRank", 0);
     }
 
