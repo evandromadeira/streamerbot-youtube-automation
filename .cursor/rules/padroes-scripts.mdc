@@ -4,5 +4,5 @@ globs: "**/*.cs"
 alwaysApply: false
 ---
 
-Antes de criar ou editar scripts C#, leia e siga o arquivo PADROES.md na raiz do repositório.
-Inclui scripts de produção e de manutenção. Preserve contratos existentes enquanto a escolha entre JSON e argumentos individuais estiver pendente.
+Antes de criar ou editar scripts C#, leia e siga o arquivo CODING_STANDARDS.md na raiz do repositório.
+Inclui scripts de produção e de manutenção. Use contextoJson entre scripts, argumentos individuais com o Banco e parâmetros diretos entre métodos do mesmo script. Migre contratos antigos somente no escopo autorizado, atualizando remetente e destinatário juntos.

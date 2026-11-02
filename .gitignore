@@ -11,5 +11,13 @@ todos_codigos.cs
 .vs/
 *.user
 
+# Build (.NET)
+tests/
+maintenance/
+
 # Gerador local de pacotes do Streamer.bot
 /tools/streamerbot/
+
+# Documentação local (exceto README)
+CODE_REVIEW.md
+CODING_STANDARDS.md
