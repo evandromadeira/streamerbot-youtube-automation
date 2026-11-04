@@ -1,7 +1,9 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 261016.0740
+// Atualização 261104.1400
+// Padrões aplicados: 5
+// Revisão concluída: 1
 public class CPHInline
 {
     private const int MetaPrimeiraLiveMadeira = 60000;
@@ -17,10 +19,11 @@ public class CPHInline
     public bool ConsultarMeta()
     {
         Evento evento = null;
+        string consultaId = Guid.NewGuid().ToString("D");
 
         try
         {
-            Contexto contexto = ObterContexto();
+            Contexto contexto = LerContexto();
             if (contexto?.Evento == null)
             {
                 LogError("ERRO: não foi possível ler o contexto do evento.");
@@ -33,6 +36,13 @@ public class CPHInline
                 LogError("ERRO: não foi possível obter o nome do canal conectado.");
                 EnviarMensagem("❌ Não foi possível consultar a meta. Tente novamente.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
+            }
+
+            LogInfo($"CONSULTA_INICIO {JsonConvert.SerializeObject(new { consultaId, evento.BroadcastUserName, evento.BroadcastUserId, evento.BroadcastId })}");
+            if (!string.Equals(evento.BroadcastUserName, "madeira_on", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(evento.BroadcastUserName, "canalcamposrapha", StringComparison.OrdinalIgnoreCase))
+            {
+                LogWarn($"CANAL_NAO_PREVISTO {JsonConvert.SerializeObject(new { consultaId, evento.BroadcastUserName, evento.BroadcastUserId, evento.BroadcastId })}");
             }
 
             bool consultou = false;
@@ -48,12 +58,19 @@ public class CPHInline
                 try
                 {
                     bool executou = CPH.ExecuteMethod("Youtube Gerente de Banco de Dados", "ObterProgressoMeta");
-                    CPH.TryGetArg("metaConsultaSucesso", out bool sucesso);
-                    consultou = executou && sucesso && CPH.TryGetArg("metaProgressoMensal", out progressoMensal);
+                    bool sucessoEncontrado = CPH.TryGetArg("metaConsultaSucesso", out bool sucesso);
+                    bool progressoEncontrado = CPH.TryGetArg("metaProgressoMensal", out int progressoRecebido);
+                    consultou = executou && sucesso && progressoEncontrado;
+                    if (consultou)
+                    {
+                        progressoMensal = progressoRecebido;
+                    }
+
+                    LogInfo($"CONSULTA_RESULTADO {JsonConvert.SerializeObject(new { consultaId, tentativa, evento.BroadcastUserName, evento.BroadcastUserId, evento.BroadcastId, executou, sucessoEncontrado, sucesso, progressoEncontrado, progressoMensal = progressoEncontrado ? (int?)progressoRecebido : null, consultou })}");
                 }
                 catch (Exception ex)
                 {
-                    LogWarn($"Tentativa {tentativa}/{MaxTentativasConsulta} lançou erro: {ex.Message}");
+                    LogWarn($"CONSULTA_EXCECAO {JsonConvert.SerializeObject(new { consultaId, tentativa, evento.BroadcastUserName, evento.BroadcastUserId, evento.BroadcastId, erro = ex.ToString() })}");
                 }
 
                 if (consultou)
@@ -61,7 +78,7 @@ public class CPHInline
                     break;
                 }
 
-                LogWarn($"Consulta sem sucesso: canal '{evento.BroadcastUserName}', tentativa {tentativa}/{MaxTentativasConsulta}.");
+                LogWarn($"Consulta {consultaId} sem sucesso: canal '{evento.BroadcastUserName}', tentativa {tentativa}/{MaxTentativasConsulta}.");
                 if (tentativa < MaxTentativasConsulta)
                 {
                     CPH.Wait(IntervaloTentativasMilissegundos);
@@ -70,7 +87,7 @@ public class CPHInline
 
             if (!consultou)
             {
-                LogError($"Consulta da meta falhou após {MaxTentativasConsulta} tentativas para o canal '{evento.BroadcastUserName}'.");
+                LogError($"Consulta {consultaId} da meta falhou após {MaxTentativasConsulta} tentativas para o canal '{evento.BroadcastUserName}'.");
                 EnviarMensagem("❌ Não foi possível consultar a meta. Tente novamente.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
@@ -83,7 +100,7 @@ public class CPHInline
         }
         catch (Exception ex)
         {
-            LogError("ERRO CRÍTICO: " + ex.Message);
+            LogError($"CONSULTA_ERRO {JsonConvert.SerializeObject(new { consultaId, evento, erro = ex.ToString() })}");
             EnviarMensagem("❌ Falha técnica ao consultar a meta.", evento?.BroadcastId, somenteNaTransmissao: true);
             return false;
         }
@@ -171,7 +188,12 @@ public class CPHInline
         CPH.LogWarn(Prefixo + mensagem);
     }
 
-    private Contexto ObterContexto()
+    private void LogInfo(string mensagem)
+    {
+        CPH.LogInfo(Prefixo + mensagem);
+    }
+
+    private Contexto LerContexto()
     {
         CPH.TryGetArg("contextoJson", out string contextoJson);
         if (string.IsNullOrEmpty(contextoJson))
@@ -190,6 +212,7 @@ public class CPHInline
     public class Evento
     {
         public string BroadcastId { get; set; }
+        public string BroadcastUserId { get; set; }
         public string BroadcastUserName { get; set; }
     }
 }
