@@ -8,7 +8,7 @@ using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-// Atualização 261102.0905
+// Atualização 261105.1620
 // Padrões aplicados: 5
 // Revisão concluída: 1
 // Chamado pelos gerentes de Chat e Doações; SincronizarPendentes é chamado por Action temporizada.
@@ -33,6 +33,10 @@ public class CPHInline
     {
         Resposta resposta = new Resposta("NAO_ENVIADO", "Comando não processado.");
 
+        string nome = "";
+        string usuario = "";
+        string motivoChat = "";
+
         try
         {
             string contextoJson = LerTexto("contextoJson");
@@ -52,6 +56,7 @@ public class CPHInline
             var partes = mensagem.Trim().Split((char[])null, 3, StringSplitOptions.RemoveEmptyEntries);
             if (partes.Length == 0 || !partes[0].Equals("!minecraft", StringComparison.OrdinalIgnoreCase))
             {
+                motivoChat = "USO";
                 throw new ArgumentException("Comando diferente de !minecraft.");
             }
 
@@ -61,7 +66,7 @@ public class CPHInline
 
                 Uri url;
 
-                string ajuda = Uri.TryCreate(link, UriKind.Absolute, out url) && (url.Scheme == "https" || url.Scheme == "http") ? "Catálogo Minecraft: " + link : "Uso: !minecraft resgatar <nome completo do item>.";
+                string ajuda = Uri.TryCreate(link, UriKind.Absolute, out url) && (url.Scheme == "https" || url.Scheme == "http") ? "Catálogo Minecraft: " + link : "Use !minecraft resgatar <nome da recompensa>.";
 
                 EnviarMensagem(ajuda, null, somenteNaTransmissao: false);
 
@@ -69,11 +74,12 @@ public class CPHInline
             }
             if (partes.Length != 3 || !partes[1].Equals("resgatar", StringComparison.OrdinalIgnoreCase))
             {
-                throw new ArgumentException("Uso: !minecraft resgatar <nome completo do item>.");
+                motivoChat = "USO";
+                throw new ArgumentException("Use !minecraft resgatar <nome da recompensa>.");
             }
 
-            string nome = ValidarTexto(partes[2].Trim(), "Nome do efeito", 256);
-            string usuario = ValidarTexto(Texto(evento, "UserName"), "Usuário", 80);
+            usuario = ValidarTexto(Texto(evento, "UserName"), "Usuário", 80);
+            nome = ValidarTexto(partes[2].Trim(), "Nome do efeito", 256);
             string userId = ValidarTexto(Texto(evento, "UserId"), "ID do usuário", 256);
             string canalId = ValidarTexto(Texto(evento, "BroadcastUserId"), "ID do canal", 256);
             string nomeCanal = (string)evento["BroadcastUserName"] ?? "";
@@ -93,7 +99,7 @@ public class CPHInline
             {
                 resposta = new Resposta("NAO_ENVIADO", "Saldo insuficiente para resgatar.");
                 resposta.Log = "Resgate do Minecraft recusado por saldo insuficiente: Usuário '" + usuario + "' (" + userId + ") | Saldo " + saldo.ToString("N0", Cultura) + ".";
-                return ResponderChat(resposta, false);
+                return ResponderChat(resposta, false, usuario, nome, motivo: "SALDO");
             }
 
             string id = IdentificarResgate(canalId, userId, mensagemId);
@@ -110,11 +116,7 @@ public class CPHInline
                 {
                     EnviarEtapa("isolate", mundo, id);
                 }
-                if (resposta.Estado == "COOLDOWN")
-                {
-                    resposta.Mensagem = "@" + usuario.TrimStart('@') + ", " + nome + " " + resposta.Mensagem;
-                }
-                return ResponderChat(resposta, false);
+                return ResponderChat(resposta, false, usuario, nome, motivo: reservaPossivel ? "CONFERIR" : "");
             }
 
             string regraReservada = resposta.RegraId;
@@ -130,14 +132,14 @@ public class CPHInline
             {
                 if (resposta.PagamentoIncerto)
                 {
-                    return ResponderChat(new Resposta("INCERTO", "Reserva antiga isolada para conferência: " + id + ". Nenhuma cobrança ou execução repetida."), false);
+                    return ResponderChat(new Resposta("INCERTO", "Reserva antiga isolada para conferência: " + id + ". Nenhuma cobrança ou execução repetida."), false, usuario, nome);
                 }
                 if (saldo < custoReservado)
                 {
                     Resposta cancelamento = EnviarEtapa("cancel", mundo, id);
                     resposta = new Resposta("NAO_ENVIADO", "Saldo insuficiente." + (cancelamento.Recibo && cancelamento.Estado == "FALHOU" ? " Reserva cancelada." : " Confira o cancelamento da reserva " + id + "."));
                     resposta.Log = "Resgate do Minecraft recusado por saldo insuficiente: Usuário '" + usuario + "' (" + userId + ") | Regra Id '" + regraReservada + "' | Valor " + custoReservado.ToString("N0", Cultura) + " | Saldo " + saldo.ToString("N0", Cultura) + ".";
-                    return ResponderChat(resposta, false);
+                    return ResponderChat(resposta, false, usuario, nome, custoReservado, "SALDO");
                 }
 
                 // O aceite persistido libera a fila antes da cobrança; nenhuma falha financeira o desfaz.
@@ -165,7 +167,7 @@ public class CPHInline
 
             resposta.Mensagem = ex.Message + (resposta.Recibo ? " Confira a operação antes de repetir." : "");
 
-            return ResponderChat(resposta, false);
+            return ResponderChat(resposta, false, usuario, nome, motivo: motivoChat.Length > 0 ? motivoChat : resposta.Recibo || resposta.Estado == "INCERTO" ? "CONFERIR" : "INDISPONIVEL");
         }
     }
 
@@ -464,7 +466,7 @@ public class CPHInline
         {
             LogWarn("Operação " + id + " | Execução: " + estado + " | Cobrança: " + cobranca + " | " + detalheCobranca);
         }
-        return ResponderChat(resposta, resposta.Aceito);
+        return ResponderChat(resposta, resposta.Aceito, usuario, nome, custo);
     }
 
     private RegistroContribuicao PrepararContribuicao(Doacao doacao)
@@ -719,13 +721,13 @@ public class CPHInline
         return "INCERTO";
     }
 
-    private bool ResponderChat(Resposta resposta, bool sucesso)
+    private bool ResponderChat(Resposta resposta, bool sucesso, string usuario, string nome, long custo = 0, string motivo = "")
     {
         bool resultado = Publicar(resposta, sucesso);
 
         try
         {
-            EnviarMensagem("Minecraft: " + resposta.Mensagem, null, somenteNaTransmissao: false);
+            EnviarMensagem(MontarRespostaChat(resposta, usuario, nome, custo, motivo), null, somenteNaTransmissao: false);
         }
         catch (Exception ex)
         {
@@ -733,6 +735,47 @@ public class CPHInline
             return false;
         }
         return resultado;
+    }
+
+    private static string MontarRespostaChat(Resposta resposta, string usuario, string nome, long custo, string motivo)
+    {
+        // Separa a resposta ao espectador dos detalhes preservados em Mensagem e no log.
+        string destinatario = string.IsNullOrWhiteSpace(usuario) ? "" : "@" + usuario.TrimStart('@') + ", ";
+        string preco = custo > 0 ? " Custo: " + custo.ToString("N0", Cultura) + " moedas do canal." : "";
+        if (motivo == "USO")
+        {
+            return "Use !minecraft resgatar <nome da recompensa>.";
+        }
+        if (motivo == "SALDO")
+        {
+            return destinatario + "saldo insuficiente para " + nome + "." + preco;
+        }
+        if (motivo == "CONFERIR" || resposta.Estado == "INCERTO" || resposta.Estado == "PARCIAL" || resposta.Estado == "RESERVADO" || resposta.Estado == "CONFLITO")
+        {
+            return destinatario + "seu resgate precisa de conferência. Aguarde antes de repetir.";
+        }
+        if (motivo == "INDISPONIVEL")
+        {
+            return destinatario + "os resgates de Minecraft estão indisponíveis no momento.";
+        }
+        if (resposta.Recibo && (resposta.Estado == "EXECUTADO" || resposta.Estado == "PENDENTE" || resposta.Estado == "EXECUTANDO"))
+        {
+            return destinatario + "resgate de " + nome + " confirmado!" + preco;
+        }
+        if (resposta.Estado == "COOLDOWN")
+        {
+            var tempo = System.Text.RegularExpressions.Regex.Match(resposta.Mensagem ?? "", @"Tente novamente em ([0-9]+ (?:s|min)(?: e [0-9]+ s)?)\.$");
+            if (tempo.Success)
+            {
+                return destinatario + nome + " disponível em " + tempo.Groups[1].Value + ".";
+            }
+            return destinatario + nome + " está indisponível para novo resgate. Aguarde.";
+        }
+        if (resposta.Estado == "RECUSADO" && resposta.Mensagem == "Resgate recusado: Nenhum resgate ativo com esse nome.")
+        {
+            return destinatario + "recompensa não encontrada.";
+        }
+        return destinatario + "os resgates de Minecraft estão indisponíveis no momento.";
     }
 
     private string MontarLogResgate(string resultado, string userId, string userName, string regraId, long custo)
