@@ -1,7 +1,7 @@
 using System;
 using Newtonsoft.Json;
 
-// Atualização 261104.1400
+// Atualização 261109.1135
 // Padrões aplicados: 5
 // Revisão concluída: 1
 public class CPHInline
@@ -13,6 +13,9 @@ public class CPHInline
     private const int MaxHorasSegundaLiveRapha = 12;
     private const int MaxTentativasConsulta = 3;
     private const int IntervaloTentativasMilissegundos = 500;
+
+    private const string CanalMadeiraId = "UCj_kM188kgumox44zMqaJPw";
+    private const string CanalRaphaId = "UCcUjJOsOBIqFWIP6AMbA21Q";
 
     private const string Prefixo = "[CONSULTAR_META] ";
 
@@ -31,16 +34,16 @@ public class CPHInline
             }
 
             evento = contexto.Evento;
-            if (string.IsNullOrWhiteSpace(evento.BroadcastUserName))
+            if (string.IsNullOrWhiteSpace(evento.BroadcastUserId))
             {
-                LogError("ERRO: não foi possível obter o nome do canal conectado.");
+                LogError("ERRO: não foi possível obter o ID do canal conectado.");
                 EnviarMensagem("❌ Não foi possível consultar a meta. Tente novamente.", evento.BroadcastId, somenteNaTransmissao: true);
                 return false;
             }
 
             LogInfo($"CONSULTA_INICIO {JsonConvert.SerializeObject(new { consultaId, evento.BroadcastUserName, evento.BroadcastUserId, evento.BroadcastId })}");
-            if (!string.Equals(evento.BroadcastUserName, "madeira_on", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(evento.BroadcastUserName, "canalcamposrapha", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(evento.BroadcastUserId, CanalMadeiraId, StringComparison.Ordinal)
+                && !string.Equals(evento.BroadcastUserId, CanalRaphaId, StringComparison.Ordinal))
             {
                 LogWarn($"CANAL_NAO_PREVISTO {JsonConvert.SerializeObject(new { consultaId, evento.BroadcastUserName, evento.BroadcastUserId, evento.BroadcastId })}");
             }
@@ -51,7 +54,7 @@ public class CPHInline
 
             for (int tentativa = 1; tentativa <= MaxTentativasConsulta; tentativa++)
             {
-                CPH.SetArgument("metaBroadcastUserName", evento.BroadcastUserName);
+                CPH.SetArgument("metaBroadcastUserId", evento.BroadcastUserId);
                 CPH.SetArgument("metaConsultaSucesso", false);
                 CPH.SetArgument("metaProgressoMensal", null);
 
@@ -92,7 +95,7 @@ public class CPHInline
                 return false;
             }
 
-            string mensagem = MontarMensagem(evento.BroadcastUserName, progressoMensal);
+            string mensagem = MontarMensagem(evento.BroadcastUserId, progressoMensal);
 
             EnviarMensagem(mensagem, evento.BroadcastId, somenteNaTransmissao: true);
 
@@ -106,10 +109,10 @@ public class CPHInline
         }
     }
 
-    private string MontarMensagem(string broadcastUserName, int progressoMensal)
+    private string MontarMensagem(string broadcastUserId, int progressoMensal)
     {
         // CANAL: MADEIRA (1ª Live 12h + 2ª Live 12h Fechada)
-        if (string.Equals(broadcastUserName, "madeira_on", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(broadcastUserId, CanalMadeiraId, StringComparison.Ordinal))
         {
             // Fase 1: Em busca da 1ª Live
             if (progressoMensal < MetaPrimeiraLiveMadeira)
@@ -130,7 +133,7 @@ public class CPHInline
         }
 
         // CANAL: CAMPOSRAPHA (1ª Live 12h + 2ª Live Dinâmica de +1h a cada 5k)
-        else if (string.Equals(broadcastUserName, "canalcamposrapha", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(broadcastUserId, CanalRaphaId, StringComparison.Ordinal))
         {
             // Fase 1: Em busca da 1ª Live de 12h
             if (progressoMensal < MetaBaseRapha)

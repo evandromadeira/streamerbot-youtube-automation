@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 
-// Atualização 261030.1040
+// Atualização 261109.2115
 // Padrões aplicados: 5
 // Revisão concluída: 1
 public class CPHInline
@@ -1894,7 +1894,7 @@ public class CPHInline
 
     public bool VerificarDoacaoDuplicada()
     {
-        // Youtube Gerente de Doações e Youtube Consultar Meta: procura duplicidade por usuário, canal, tipo e tier na janela configurada.
+        // Youtube Gerente de Doações: procura duplicidade por usuário, canal, tipo e tier na janela configurada.
         try
         {
             CPH.SetArgument("doacaoDuplicada", false);
@@ -2091,10 +2091,10 @@ public class CPHInline
         try
         {
             CPH.SetArgument("metaConsultaSucesso", false);
-            CPH.TryGetArg("metaBroadcastUserName", out string broadcastUserName);
-            if (string.IsNullOrEmpty(broadcastUserName))
+            CPH.TryGetArg("metaBroadcastUserId", out string broadcastUserId);
+            if (string.IsNullOrWhiteSpace(broadcastUserId))
             {
-                LogError("ERRO: broadcastUserName ausente para ObterProgressoMeta.");
+                LogError("ERRO: broadcastUserId ausente para ObterProgressoMeta.");
                 CPH.SetArgument("metaProgressoMensal", 0);
                 return false;
             }
@@ -2110,12 +2110,11 @@ public class CPHInline
             using (var connection = AbrirConexao(ambiente))
             {
                 string selectSql = @"SELECT COALESCE(SUM(pontosMeta), 0) FROM YoutubeDoacoes
-                                      WHERE broadcastUserName = @broadcastUserName
-                                    COLLATE NOCASE
+                                      WHERE broadcastUserId = @broadcastUserId
                                         AND timestamp >= date('now', 'localtime', 'start of month');";
                 using (var cmd = new SQLiteCommand(selectSql, connection))
                 {
-                    cmd.Parameters.AddWithValue("@broadcastUserName", broadcastUserName);
+                    cmd.Parameters.AddWithValue("@broadcastUserId", broadcastUserId);
                     var resultado = cmd.ExecuteScalar();
 
                     int progresso = resultado != null ? Convert.ToInt32(resultado) : 0;
